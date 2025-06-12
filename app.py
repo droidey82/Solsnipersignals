@@ -4,24 +4,39 @@ import requests
 
 app = Flask(__name__)
 
-@app.route('/')
+# Telegram setup
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
+TELEGRAM_API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+
+@app.route("/", methods=["GET"])
 def home():
-    return 'Sol Sniper Signals Bot is Live!'
+    return "SolSniperSignals bot is live."
 
-@app.route('/webhook', methods=['POST'])
-def webhook():
+@app.route("/alert", methods=["POST"])
+def alert():
     data = request.json
-    print("Received alert:", data)
+    if not data:
+        return {"error": "No JSON received"}, 400
 
-    message = f"🚀 Token: {data.get('token_name', 'Unknown')}\nPrice: {data.get('price', 'N/A')}"
-    telegram_url = f"https://api.telegram.org/bot{os.environ['TELEGRAM_BOT_TOKEN']}/sendMessage"
-    payload = {
-        'chat_id': os.environ['TELEGRAM_CHANNEL_ID'],
-        'text': message
-    }
-    requests.post(telegram_url, json=payload)
+    # Format the alert message
+    token_name = data.get("token", "Unknown Token")
+    price = data.get("price", "N/A")
+    volume = data.get("volume", "N/A")
+    telegram_message = f"🚀 *New Alert:*\nToken: {token_name}\nPrice: {price}\nVolume: {volume}"
 
-    return {'status': 'ok'}, 200
+    # Send to Telegram
+    response = requests.post(TELEGRAM_API_URL, json={
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": telegram_message,
+        "parse_mode": "Markdown"
+    })
 
-if __name__ == '__main__':
-    app.run()
+    if response.status_code == 200:
+        return {"status": "sent"}, 200
+    else:
+        return {"error": "Failed to send Telegram message"}, 500
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
