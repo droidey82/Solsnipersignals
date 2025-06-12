@@ -1,3 +1,19 @@
+from flask import Flask, request
+import os
+import requests
+
+# ✅ Flask app must be initialized before any @app.route decorators
+app = Flask(__name__)
+
+# Telegram setup
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
+TELEGRAM_API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+
+@app.route("/", methods=["GET"])
+def home():
+    return "SolSniperSignals bot is live."
+
 @app.route("/alert", methods=["POST"])
 def alert():
     data = request.json
@@ -7,23 +23,23 @@ def alert():
     token_name = data.get("token", "Unknown Token")
     price = data.get("price", "N/A")
     volume = data.get("volume", "N/A")
-
+    
+    # Format the Telegram message
     telegram_message = f"🚀 *New Alert:*\nToken: {token_name}\nPrice: {price}\nVolume: {volume}"
 
-    payload = {
+    # Send the message to Telegram
+    response = requests.post(TELEGRAM_API_URL, json={
         "chat_id": TELEGRAM_CHAT_ID,
         "text": telegram_message,
         "parse_mode": "Markdown"
-    }
-
-    response = requests.post(TELEGRAM_API_URL, json=payload)
+    })
 
     if response.status_code == 200:
         return {"status": "sent"}, 200
     else:
-        # Print Telegram response to debug the issue
-        print("Telegram response:", response.text)
-        return {
-            "error": "Failed to send Telegram message",
-            "telegram_response": response.text  # <-- View this in Render logs
-        }, 500
+        print("Telegram error:", response.text)
+        return {"error": "Failed to send Telegram message"}, 500
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
