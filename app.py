@@ -1,12 +1,11 @@
 from flask import Flask, request
-import os
 import requests
 
 app = Flask(__name__)
 
-# Telegram setup
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
+# TEMP: Hardcoded for debugging
+TELEGRAM_BOT_TOKEN = "7695990250:AAFdo9m1kbXYtmQMK0j0qcv65LPb8lMIA7k"
+TELEGRAM_CHAT_ID = "-1002847073811"
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
 
 @app.route("/", methods=["GET"])
@@ -23,8 +22,7 @@ def alert():
     price = data.get("price", "N/A")
     volume = data.get("volume", "N/A")
 
-    # Use HTML formatting to avoid Markdown parse issues
-    message = f"🚀 <b>New Token Alert!</b>\nToken: <code>{token}</code>\nPrice: <code>{price}</code>\nVolume: <code>{volume}</code>"
+    message = f"🚀 <b>New Token Alert</b>\nToken: <code>{token}</code>\nPrice: <code>{price}</code>\nVolume: <code>{volume}</code>"
 
     response = requests.post(TELEGRAM_API_URL, json={
         "chat_id": TELEGRAM_CHAT_ID,
