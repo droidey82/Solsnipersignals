@@ -3,8 +3,8 @@ import requests
 import os
 import json
 import gspread
-from datetime import datetime
 from oauth2client.service_account import ServiceAccountCredentials
+from datetime import datetime
 
 app = Flask(__name__)
 
@@ -14,12 +14,12 @@ TELEGRAM_CHAT_ID = "-1002847073811"
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
 
 # Google Sheets setup
-scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-google_creds_dict = json.loads(os.environ["GOOGLE_CREDS"])
-credentials = ServiceAccountCredentials.from_json_keyfile_dict(google_creds_dict, scope)
-gc = gspread.authorize(credentials)
-spreadsheet = gc.open("SolSniperSignals")  # Make sure this name matches your sheet
-sheet = spreadsheet.sheet1
+GOOGLE_CREDS = os.environ.get("GOOGLE_CREDS")
+google_creds_dict = json.loads(GOOGLE_CREDS)
+scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+creds = ServiceAccountCredentials.from_json_keyfile_dict(google_creds_dict, scope)
+client = gspread.authorize(creds)
+sheet = client.open("SolSniper Tracker").sheet1
 
 @app.route("/", methods=["GET"])
 def home():
@@ -34,25 +34,22 @@ def alert():
     token = data.get("token", "Unknown")
     price = data.get("price", "N/A")
     volume = data.get("volume", "N/A")
+    timestamp = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
 
-    # Format Telegram message
+    # Telegram alert
     message = f"🚀 <b>New Token Alert</b>\nToken: <code>{token}</code>\nPrice: <code>{price}</code>\nVolume: <code>{volume}</code>"
-
-    # Send Telegram message
     telegram_response = requests.post(TELEGRAM_API_URL, json={
         "chat_id": TELEGRAM_CHAT_ID,
         "text": message,
         "parse_mode": "HTML"
     })
 
-    # Log to Google Sheets
-    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    # Google Sheet logging
     try:
-        sheet.append_row([timestamp, token, price, volume, "", ""])  # TP Price, TP Hit left blank
+        sheet.append_row([timestamp, token, price, volume, "", ""])  # TP Price & TP Hit are blank for now
     except Exception as e:
-        return {"error": f"Google Sheets error: {str(e)}"}, 500
+        print("Google Sheets Logging Error:", str(e))
 
-    # Response
     if telegram_response.status_code == 200:
         return {"status": "sent"}, 200
     else:
