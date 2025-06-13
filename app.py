@@ -14,6 +14,7 @@ TELEGRAM_CHAT_ID = "-1002847073811"
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
 
 # Google Sheets setup
+google_creds_dict = json.loads(GOOGLE_CREDS)
 GOOGLE_CREDS = os.environ.get("GOOGLE_CREDS")
 google_creds_dict = json.loads(GOOGLE_CREDS)
 scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
