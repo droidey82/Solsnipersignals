@@ -5,13 +5,13 @@ import requests
 app = Flask(__name__)
 
 # Telegram setup
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")  # should be set in Render
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")      # should be -1002847073811
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = "-1002847073811"  # <-- HARD-CODED channel ID to avoid 404
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
 
 @app.route("/", methods=["GET"])
 def home():
-    return "✅ SolSniperSignals bot is live."
+    return "SolSniperSignals bot is live."
 
 @app.route("/alert", methods=["POST"])
 def alert():
@@ -19,20 +19,17 @@ def alert():
     if not data:
         return {"error": "No JSON received"}, 400
 
-    token = data.get("token", "Unknown")
+    token_name = data.get("token", "Unknown Token")
     price = data.get("price", "N/A")
     volume = data.get("volume", "N/A")
 
-    message = f"🚀 *New Signal Alert!*\nToken: {token}\nPrice: {price}\nVolume: {volume}"
+    message = f"🚀 *New Alert:*\nToken: {token_name}\nPrice: {price}\nVolume: {volume}"
 
-    response = requests.post(
-        TELEGRAM_API_URL,
-        json={
-            "chat_id": TELEGRAM_CHAT_ID,
-            "text": message,
-            "parse_mode": "Markdown"
-        }
-    )
+    response = requests.post(TELEGRAM_API_URL, json={
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": message,
+        "parse_mode": "Markdown"
+    })
 
     if response.status_code == 200:
         return {"status": "sent"}, 200
