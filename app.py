@@ -1,27 +1,25 @@
 from flask import Flask, request
 import requests
 import os
+import json
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
-import json
 
 app = Flask(__name__)
 
-# Telegram credentials
+# Telegram configuration
 TELEGRAM_BOT_TOKEN = "7695990250:AAFdo9m1kbXYtmQMK0j0qcv65LPb8lMIA7k"
 TELEGRAM_CHAT_ID = "-1002847073811"
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
 
-# Load Google credentials from environment variable
-google_creds_json = os.environ.get("GOOGLE_CREDS")
-google_creds_dict = json.loads(google_creds_json)
-
-scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-credentials = ServiceAccountCredentials.from_json_keyfile_dict(google_creds_dict, scope)
-
-gc = gspread.authorize(credentials)
-sheet = gc.open("SolSniperSignals Tracker").sheet1  # Make sure this name matches your sheet
+# Google Sheets setup
+GOOGLE_CREDS = os.environ.get("GOOGLE_CREDS")
+google_creds_dict = json.loads(GOOGLE_CREDS)
+scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+creds = ServiceAccountCredentials.from_json_keyfile_dict(google_creds_dict, scope)
+client = gspread.authorize(creds)
+sheet = client.open("SolSniperSignals").sheet1  # ✅ Update to match your sheet name
 
 @app.route("/", methods=["GET"])
 def home():
@@ -34,36 +32,34 @@ def alert():
         return {"error": "No JSON received"}, 400
 
     token = data.get("token", "Unknown")
-    price = float(data.get("price", 0))
+    price = data.get("price", "N/A")
     volume = data.get("volume", "N/A")
+    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
 
-    tp_price = round(price * 1.15, 4)  # 15% target profit
+    # Format Telegram message
+    message = f"🚀 <b>New Token Alert</b>\nToken: <code>{token}</code>\nPrice: <code>{price}</code>\nVolume: <code>{volume}</code>"
 
-    # Send Telegram message
-    message = (
-        f"🚀 <b>New Token Alert</b>\n"
-        f"Token: <code>{token}</code>\n"
-        f"Price: <code>{price}</code>\n"
-        f"Volume: <code>{volume}</code>\n"
-        f"TP Target: <code>{tp_price}</code>"
-    )
-    telegram_response = requests.post(TELEGRAM_API_URL, json={
+    # Send to Telegram
+    response = requests.post(TELEGRAM_API_URL, json={
         "chat_id": TELEGRAM_CHAT_ID,
         "text": message,
         "parse_mode": "HTML"
     })
 
     # Log to Google Sheets
-    now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-    sheet.append_row([now, token, price, volume, tp_price, ""])
+    try:
+        sheet.append_row([timestamp, token, price, volume, "", "", ""])
+    except Exception as e:
+        return {"error": "Google Sheets error", "details": str(e)}, 500
 
-    if telegram_response.status_code == 200:
+    # Return success/failure
+    if response.status_code == 200:
         return {"status": "sent"}, 200
     else:
         return {
             "error": "Telegram error",
-            "status": telegram_response.status_code,
-            "details": telegram_response.json()
+            "status": response.status_code,
+            "details": response.json()
         }, 500
 
 if __name__ == "__main__":
