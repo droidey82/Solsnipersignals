@@ -16,17 +16,25 @@ def home():
 def alert():
     try:
         data = request.get_json(force=True)
+        if not data:
+            return {"error": "Missing JSON body"}, 400
+
         token = data.get("token", "Unknown")
         price = data.get("price", "N/A")
         volume = data.get("volume", "N/A")
 
-        text = f"🚀 *New Token Alert!*\nToken: {token}\nPrice: {price}\nVolume: {volume}"
+        message = f"🚀 *New Token Alert!*\nToken: `{token}`\nPrice: `{price}`\nVolume: `{volume}`"
 
-        response = requests.post(TELEGRAM_URL, json={
+        payload = {
             "chat_id": CHAT_ID,
-            "text": text,
+            "text": message,
             "parse_mode": "Markdown"
-        })
+        }
+
+        response = requests.post(TELEGRAM_URL, json=payload)
+
+        # Detailed logging
+        print("Telegram response:", response.status_code, response.text)
 
         if response.ok:
             return {"status": "sent"}, 200
@@ -38,7 +46,7 @@ def alert():
             }, 500
 
     except Exception as e:
-        return {"error": str(e)}, 500
+        return {"error": f"Unhandled server error: {str(e)}"}, 500
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
