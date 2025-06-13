@@ -1,25 +1,24 @@
 from flask import Flask, request
 import requests
 import os
-import json
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-from datetime import datetime
 
 app = Flask(__name__)
 
-# Telegram config
-TELEGRAM_BOT_TOKEN = "7695990250:AAFdo9m1kbXYtmQMK0j0qcv65LPb8lMIA7k"
-TELEGRAM_CHAT_ID = "-1002847073811"
+# Telegram setup
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
 
 # Google Sheets setup
-GOOGLE_CREDS = os.environ.get("GOOGLE_CREDS")
-google_creds_dict = json.loads(GOOGLE_CREDS)
-scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-creds = ServiceAccountCredentials.from_json_keyfile_dict(google_creds_dict, scope)
+scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+creds = ServiceAccountCredentials.from_json_keyfile_name("/etc/secrets/google_creds.json", scope)
 client = gspread.authorize(creds)
-sheet = client.open("SolSniper Tracker").sheet1
+
+# Open your shared sheet
+SHEET_NAME = os.getenv("GOOGLE_SHEET_NAME", "SolSniperSignals")
+sheet = client.open(SHEET_NAME).sheet1
 
 @app.route("/", methods=["GET"])
 def home():
@@ -34,29 +33,29 @@ def alert():
     token = data.get("token", "Unknown")
     price = data.get("price", "N/A")
     volume = data.get("volume", "N/A")
-    timestamp = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
 
-    # Telegram alert
     message = f"🚀 <b>New Token Alert</b>\nToken: <code>{token}</code>\nPrice: <code>{price}</code>\nVolume: <code>{volume}</code>"
-    telegram_response = requests.post(TELEGRAM_API_URL, json={
+
+    # Send to Telegram
+    tg_response = requests.post(TELEGRAM_API_URL, json={
         "chat_id": TELEGRAM_CHAT_ID,
         "text": message,
         "parse_mode": "HTML"
     })
 
-    # Google Sheet logging
+    # Log to Google Sheets
     try:
-        sheet.append_row([timestamp, token, price, volume, "", ""])  # TP Price & TP Hit are blank for now
+        sheet.append_row([token, price, volume])
     except Exception as e:
-        print("Google Sheets Logging Error:", str(e))
+        print("Sheet logging failed:", str(e))
 
-    if telegram_response.status_code == 200:
-        return {"status": "sent"}, 200
+    if tg_response.status_code == 200:
+        return {"status": "Alert sent & logged"}, 200
     else:
         return {
             "error": "Telegram error",
-            "status": telegram_response.status_code,
-            "details": telegram_response.json()
+            "status": tg_response.status_code,
+            "details": tg_response.json()
         }, 500
 
 if __name__ == "__main__":
