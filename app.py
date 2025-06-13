@@ -1,9 +1,10 @@
 from flask import Flask, request
 import requests
+import os  # ✅ Add this
 
 app = Flask(__name__)
 
-# TEMP: Hardcoded for debugging
+# Hardcoded credentials
 TELEGRAM_BOT_TOKEN = "7695990250:AAFdo9m1kbXYtmQMK0j0qcv65LPb8lMIA7k"
 TELEGRAM_CHAT_ID = "-1002847073811"
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
