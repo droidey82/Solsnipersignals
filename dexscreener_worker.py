@@ -10,6 +10,10 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 BIRDEYE_API_KEY = os.getenv("BIRDEYE_API_KEY")
 
+print("🔐 BOT TOKEN:", "✔️" if TELEGRAM_BOT_TOKEN else "❌ MISSING")
+print("🔐 CHAT ID:", TELEGRAM_CHAT_ID)
+print("🔐 BIRDEYE KEY:", "✔️" if BIRDEYE_API_KEY else "❌ MISSING")
+
 DEXSCREENER_API_URL = "https://api.dexscreener.com/latest/dex/pairs/solana"
 BIRDEYE_BASE_URL = "https://public-api.birdeye.so/public/token/"
 HEADERS = {"X-API-KEY": BIRDEYE_API_KEY}
@@ -29,26 +33,26 @@ def send_telegram_alert(message):
     }
     try:
         response = requests.post(url, json=payload)
-        print("📨 Telegram POST:", response.status_code, response.text)
+        print("📨 Telegram Response:", response.status_code, response.text)
         return response.status_code == 200
     except Exception as e:
-        print("❌ Telegram failed:", e)
+        print("❌ Telegram send failed:", e)
         return False
 
-def token_is_safe(token_address):
-    try:
-        resp = requests.get(f"{BIRDEYE_BASE_URL}{token_address}/holders", headers=HEADERS)
-        data = resp.json()
-        if not data.get("data"):
-            return False
-        top_holders = data["data"][:5]
-        for holder in top_holders:
-            if holder["share"] > MAX_HOLDER_PERCENTAGE:
-                return False
-        return True
-    except Exception as e:
-        print(f"❌ Error in token_is_safe: {e}")
-        return False
+# Force a startup test alert
+def send_startup_test():
+    print("🚨 Sending test alert...")
+    message = (
+        "<b>✅ Test Alert from Worker</b>\n"
+        "<b>Name:</b> Example Token\n"
+        "<b>Symbol:</b> EXM\n"
+        "<b>Liquidity:</b> $123,456\n"
+        "<b>5m Volume:</b> $12,345\n"
+        "<b>Dex:</b> Raydium\n"
+        "<b>Pair:</b> <a href='https://dexscreener.com/solana/example'>View</a>"
+    )
+    result = send_telegram_alert(message)
+    print("✅ Test alert success:", result)
 
 def check_dexscreener():
     try:
@@ -83,25 +87,27 @@ def check_dexscreener():
             send_telegram_alert(message)
 
     except Exception as e:
-        print(f"❌ Error fetching DexScreener data: {e}")
+        print(f"❌ Error fetching data: {e}")
 
-# 👇 Startup logic
+def token_is_safe(token_address):
+    try:
+        resp = requests.get(f"{BIRDEYE_BASE_URL}{token_address}/holders", headers=HEADERS)
+        data = resp.json()
+        if not data.get("data"):
+            return False
+        top_holders = data["data"][:5]
+        for holder in top_holders:
+            if holder["share"] > MAX_HOLDER_PERCENTAGE:
+                return False
+        return True
+    except Exception as e:
+        print(f"❌ Error in token_is_safe: {e}")
+        return False
+
+# Main loop
 if __name__ == "__main__":
-    print("🟢 Starting DexScreener Worker")
-    print("🔐 BOT TOKEN Prefix:", TELEGRAM_BOT_TOKEN[:8] if TELEGRAM_BOT_TOKEN else "Not Found")
-    print("🔐 CHAT ID:", TELEGRAM_CHAT_ID)
-
-    test_sent = send_telegram_alert(
-        "<b>✅ Test Alert</b>\n"
-        "<b>Name:</b> Example Token\n"
-        "<b>Symbol:</b> EXM\n"
-        "<b>Liquidity:</b> $123,456\n"
-        "<b>5m Volume:</b> $12,345\n"
-        "<b>Dex:</b> Raydium\n"
-        "<b>Pair:</b> <a href='https://dexscreener.com/solana/example'>View</a>"
-    )
-    print("✅ Test alert sent:", test_sent)
-
+    print("🔄 Starting SolSniper background worker...")
+    send_startup_test()
     while True:
         check_dexscreener()
-        time.sleep(300)  # every 5 minutes
+        time.sleep(300)
