@@ -39,7 +39,6 @@ def send_telegram_alert(message):
         print("❌ Telegram send failed:", e)
         return False
 
-# Force a startup test alert
 def send_startup_test():
     print("🚨 Sending test alert...")
     message = (
@@ -53,6 +52,21 @@ def send_startup_test():
     )
     result = send_telegram_alert(message)
     print("✅ Test alert success:", result)
+
+def token_is_safe(token_address):
+    try:
+        resp = requests.get(f"{BIRDEYE_BASE_URL}{token_address}/holders", headers=HEADERS)
+        data = resp.json()
+        if not data.get("data"):
+            return False
+        top_holders = data["data"][:5]
+        for holder in top_holders:
+            if holder["share"] > MAX_HOLDER_PERCENTAGE:
+                return False
+        return True
+    except Exception as e:
+        print(f"❌ Error in token_is_safe: {e}")
+        return False
 
 def check_dexscreener():
     try:
@@ -87,27 +101,12 @@ def check_dexscreener():
             send_telegram_alert(message)
 
     except Exception as e:
-        print(f"❌ Error fetching data: {e}")
+        print(f"❌ Error fetching DexScreener data: {e}")
 
-def token_is_safe(token_address):
-    try:
-        resp = requests.get(f"{BIRDEYE_BASE_URL}{token_address}/holders", headers=HEADERS)
-        data = resp.json()
-        if not data.get("data"):
-            return False
-        top_holders = data["data"][:5]
-        for holder in top_holders:
-            if holder["share"] > MAX_HOLDER_PERCENTAGE:
-                return False
-        return True
-    except Exception as e:
-        print(f"❌ Error in token_is_safe: {e}")
-        return False
-
-# Main loop
+# MAIN
 if __name__ == "__main__":
     print("🔄 Starting SolSniper background worker...")
-    send_startup_test()
+    send_startup_test()  # <- MAKE SURE THIS IS INCLUDED
     while True:
         check_dexscreener()
         time.sleep(300)
