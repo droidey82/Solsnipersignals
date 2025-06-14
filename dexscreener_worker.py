@@ -1,88 +1,35 @@
-import requests
-import os
-import time
-from datetime import datetime
-from dotenv import load_dotenv
+import os import requests import time from datetime import datetime
 
-load_dotenv()
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN") TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID") BIRDEYE_API_KEY = os.getenv("BIRDEYE_API_KEY")
 
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHANNEL_ID")
-MIN_LIQUIDITY_USD = 10000
-MIN_VOLUME_USD = 15000
-DELAY_SECONDS = 300  # 5 minutes
+TELEGRAM_API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage" HEADERS = {"X-API-KEY": BIRDEYE_API_KEY}
 
-def get_new_pairs():
-    url = "https://api.dexscreener.com/latest/dex/pairs/solana"
-    try:
-        response = requests.get(url)
-        response.raise_for_status()
-        return response.json().get("pairs", [])
-    except Exception as e:
-        print(f"[{datetime.now()}] ❌ Failed to fetch pairs: {e}")
-        return []
+MIN_VOLUME = 15000 MIN_LIQUIDITY = 10000 TOP_HOLDER_THRESHOLD = 0.80
 
-def passes_filters(pair):
-    try:
-        liquidity = float(pair["liquidity"]["usd"])
-        volume = float(pair["volume"]["h24"])
-        if liquidity >= MIN_LIQUIDITY_USD and volume >= MIN_VOLUME_USD:
-            return True
-    except Exception as e:
-        print(f"Error in passes_filters: {e}")
-    return False
+SOLANA_TOKENS_URL = "https://public-api.birdeye.so/public/tokenlist?sort_by=volume_24h&chain=solana" HOLDERS_API = "https://public-api.birdeye.so/public/token/holders" TOKEN_INFO_API = "https://public-api.birdeye.so/public/token/"
 
-def format_alert(pair):
-    try:
-        name = pair["baseToken"]["name"]
-        symbol = pair["baseToken"]["symbol"]
-        url = pair["url"]
-        liquidity = round(float(pair["liquidity"]["usd"]), 2)
-        volume = round(float(pair["volume"]["h24"]), 2)
-        price = pair["priceUsd"]
+def get_top_tokens(): try: r = requests.get(SOLANA_TOKENS_URL, headers=HEADERS) r.raise_for_status() tokens = r.json().get("data", []) return [t for t in tokens if t.get("liquidity") >= MIN_LIQUIDITY and t.get("volume_24h") >= MIN_VOLUME] except Exception as e: print(f"[ERROR] Fetching tokens: {e}") return []
 
-        return (
-            f"🚀 <b>New Token Alert</b>\n"
-            f"<b>Name:</b> {name} ({symbol})\n"
-            f"<b>Price:</b> ${price}\n"
-            f"<b>Liquidity:</b> ${liquidity:,}\n"
-            f"<b>Volume (24h):</b> ${volume:,}\n"
-            f"<a href=\"{url}\">📊 View Chart</a>"
-        )
-    except Exception as e:
-        return f"❌ Error formatting alert: {e}"
+def is_bundle(token_info): return token_info.get("is_lp") or token_info.get("lp_holders")
 
-def send_telegram_alert(message):
-    try:
-        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        payload = {
-            "chat_id": TELEGRAM_CHAT_ID,
-            "text": message,
-            "parse_mode": "HTML",
-            "disable_web_page_preview": False
-        }
-        response = requests.post(url, json=payload)
-        if not response.ok:
-            print(f"Telegram error: {response.text}")
-    except Exception as e:
-        print(f"❌ Failed to send Telegram alert: {e}")
+def is_mintable_or_owned(token_info): return token_info.get("can_mint", False) or not token_info.get("is_renounced", False)
 
-def main():
-    print(f"[{datetime.now()}] ✅ Dexscreener worker started")
-    seen = set()
+def top_holders_safe(token_address): try: r = requests.get(f"{HOLDERS_API}?address={token_address}&limit=5", headers=HEADERS) holders = r.json().get("data", []) total_pct = sum(float(h.get("holding_percent", 0)) for h in holders) return total_pct <= (TOP_HOLDER_THRESHOLD * 100) except Exception as e: print(f"[WARN] Holder check failed: {e}") return False
 
-    while True:
-        try:
-            pairs = get_new_pairs()
-            for pair in pairs:
-                pair_id = pair["pairAddress"]
-                if pair_id not in seen and passes_filters(pair):
-                    msg = format_alert(pair)
-                    send_telegram_alert(msg)
-                    seen.add(pair_id)
-        except Exception as e:
-            print(f"Unexpected error: {e}")
-        time.sleep(DELAY_SECONDS)
+def fetch_token_info(address): try: r = requests.get(f"{TOKEN_INFO_API}{address}?chain=solana", headers=HEADERS) return r.json().get("data", {}) except Exception as e: print(f"[ERROR] Token info fetch failed: {e}") return {}
 
-if __name__ == "__main__":
-    main()
+def send_alert(token): msg = ( f"<b>🚨 A-Grade Solana Token Detected</b>\n" f"Name: <b>{token.get('name')}</b>\n" f"Symbol: <code>{token.get('symbol')}</code>\n" f"Volume 24h: <code>${int(token.get('volume_24h')):,}</code>\n" f"Liquidity: <code>${int(token.get('liquidity')):,}</code>\n" f"Link: https://dexscreener.com/solana/{token.get('address')}" ) try: requests.post(TELEGRAM_API_URL, json={ "chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "HTML" }) print(f"[ALERT] Sent: {token.get('symbol')}") except Exception as e: print(f"[ERROR] Telegram send failed: {e}")
+
+def run_scan(): print(f"[{datetime.utcnow()}] Scanning for A-grade tokens...") tokens = get_top_tokens() for token in tokens: address = token.get("address") info = fetch_token_info(address)
+
+if is_bundle(info):
+        continue
+    if is_mintable_or_owned(info):
+        continue
+    if not top_holders_safe(address):
+        continue
+
+    send_alert(token)
+
+if name == "main": while True: run_scan() time.sleep(300)
+
