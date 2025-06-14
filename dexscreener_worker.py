@@ -1,7 +1,7 @@
 import os
 import requests
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -29,7 +29,7 @@ def send_telegram_alert(message):
     }
     try:
         response = requests.post(url, json=payload)
-        print(f"✅ Telegram status: {response.status_code}")
+        print("✅ Telegram alert status:", response.status_code)
         return response.status_code == 200
     except Exception as e:
         print(f"❌ Telegram send failed: {e}")
@@ -47,12 +47,12 @@ def token_is_safe(token_address):
                 return False
         return True
     except Exception as e:
-        print(f"❌ Error in token_is_safe: {e}")
+        print(f"Error in token_is_safe: {e}")
         return False
 
 def check_dexscreener():
     try:
-        print(f"[{datetime.utcnow()}] Scanning Solana pairs...")
+        print(f"[{datetime.now(timezone.utc)}] Scanning Solana pairs...")
         response = requests.get(DEXSCREENER_API_URL)
         pairs = response.json().get("pairs", [])
 
@@ -85,14 +85,12 @@ def check_dexscreener():
     except Exception as e:
         print(f"❌ Error fetching DexScreener data: {e}")
 
-# ✅ Send a Telegram message on startup
-startup_msg = "<b>✅ Bot started and ready to snipe</b>\n<i>Monitoring Solana tokens on DexScreener every 5 minutes</i>"
-send_telegram_alert(startup_msg)
+# ✅ Telegram startup test alert
+send_telegram_alert("<b>✅ Bot started and ready</b>\n<i>DexScreener scan begins now</i>")
+send_telegram_alert("🚨 This is a test alert from Render background worker.")
 
-# 🔔 Standalone Test
-send_telegram_alert("🚨 Telegram test alert from Render background worker")
 # 🔁 Run loop
 if __name__ == "__main__":
     while True:
         check_dexscreener()
-        time.sleep(300)  # every 5 minutes
+        time.sleep(300)
