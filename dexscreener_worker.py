@@ -23,7 +23,7 @@ Minimums
 MIN_LIQUIDITY_USD = 5000
 MIN_VOLUME_5M = 5000
 MAX_HOLDER_PERCENTAGE = 15
-Token safety checks
+# Token safety checks
 
 def token_is_safe(token_address): try: resp = requests.get(f"{BIRDEYE_BASE_URL}{token_address}/holders", headers=HEADERS) data = resp.json() if not data.get("data"): return False top_holders = data["data"][:5] for holder in top_holders: if holder["share"] > MAX_HOLDER_PERCENTAGE: return False return True except Exception as e: print(f"Error in token_is_safe: {e}") return False
 
