@@ -107,4 +107,17 @@ def check_dexscreener():
 
     except Exception as e:
         print(f"❌ Error fetching or scanning DexScreener data: {e}", flush=True)
-    print("✅
+    print("✅ Finished scan, sleeping 5m\n", flush=True)
+
+
+# ✅ Notify on startup
+send_telegram_alert(
+    "✅ <b>Bot started and ready to snipe</b>\n"
+    "<i>Monitoring Solana tokens every 5 minutes with LP lock, top holders ≤ 5%, and $10k+ liquidity</i>"
+)
+
+# 🔁 Run loop
+if __name__ == "__main__":
+    while True:
+        check_dexscreener()
+        time.sleep(300)
