@@ -12,7 +12,9 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 BIRDEYE_API_KEY = os.getenv("BIRDEYE_API_KEY")
 
-DEXSCREENER_API_URL = "https://api.dexscreener.com/latest/dex/pairs/solana" BIRDEYE_BASE_URL = "https://public-api.birdeye.so/public/token/" HEADERS = {"X-API-KEY": BIRDEYE_API_KEY}
+DEXSCREENER_API_URL = "https://api.dexscreener.com/latest/dex/pairs/solana"
+BIRDEYE_BASE_URL = "https://public-api.birdeye.so/public/token/"
+HEADERS = {"X-API-KEY": BIRDEYE_API_KEY}
 
 SEEN_TOKENS = set()
 
