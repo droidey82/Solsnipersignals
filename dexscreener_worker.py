@@ -42,7 +42,7 @@ def token_is_safe(token_address):
             return False
         top_holders = data["data"][:5]
         for holder in top_holders:
-            if holder["share"] > MAX_HOLDER_PERCENTAGE:
+            if holder.get("share", 0) > MAX_HOLDER_PERCENTAGE:
                 return False
         return True
     except Exception as e:
@@ -66,14 +66,17 @@ def check_dexscreener():
             if liquidity < MIN_LIQUIDITY_USD or volume < MIN_VOLUME_5M:
                 continue
 
-            if not token_is_safe(token.get("baseToken", {}).get("address", "")):
+            base_token = token.get("baseToken", {})
+            token_address = base_token.get("address", "")
+            if not token_address or not token_is_safe(token_address):
                 continue
 
             SEEN_TOKENS.add(address)
+
             message = (
                 f"<b>🚀 New Solana Token Detected</b>\n"
-                f"<b>Name:</b> {token.get('baseToken', {}).get('name', 'Unknown')}\n"
-                f"<b>Symbol:</b> {token.get('baseToken', {}).get('symbol', '-')}\n"
+                f"<b>Name:</b> {base_token.get('name', 'Unknown')}\n"
+                f"<b>Symbol:</b> {base_token.get('symbol', '-')}\n"
                 f"<b>Liquidity:</b> ${liquidity:,.0f}\n"
                 f"<b>5m Volume:</b> ${volume:,.0f}\n"
                 f"<b>Dex:</b> {token.get('dexId')}\n"
@@ -84,7 +87,6 @@ def check_dexscreener():
     except Exception as e:
         print(f"Error fetching data: {e}")
 
-# Run loop
 if __name__ == "__main__":
     while True:
         check_dexscreener()
