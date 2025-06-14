@@ -15,11 +15,11 @@ BIRDEYE_BASE_URL = "https://public-api.birdeye.so/public/token/"
 HEADERS = {"X-API-KEY": BIRDEYE_API_KEY}
 
 MIN_LIQUIDITY_USD = 10000
-MIN_VOLUME_5M = 15000
 MAX_HOLDER_PERCENTAGE = 5
-MIN_VOLUME_SPIKE_PCT = 20  # Optional: volume spike logic if needed
+VOLUME_SPIKE_THRESHOLD = 20  # % increase in 5m volume
 
 SEEN_TOKENS = set()
+
 
 def send_telegram_alert(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -29,92 +29,82 @@ def send_telegram_alert(message):
         "parse_mode": "HTML"
     }
     try:
-        response = requests.post(url, json=payload)
-        print("✅ Telegram response:", response.json())
-        return response.status_code == 200
+        res = requests.post(url, json=payload)
+        print(f"Telegram response: {res.status_code} - {res.text}", flush=True)
+        return res.status_code == 200
     except Exception as e:
-        print(f"❌ Telegram send failed: {e}")
+        print(f"❌ Telegram send failed: {e}", flush=True)
         return False
 
-def token_is_safe(token_address):
+
+def is_token_safe(token_address):
     try:
         resp = requests.get(f"{BIRDEYE_BASE_URL}{token_address}/holders", headers=HEADERS)
         data = resp.json()
-        if not data.get("data"):
-            print("⚠️ No holder data for token:", token_address)
-            return False
-        top_holders = data["data"][:5]
+        top_holders = data.get("data", [])[:5]
         for holder in top_holders:
-            if holder["share"] > MAX_HOLDER_PERCENTAGE:
-                print(f"❌ Rejected: Holder share {holder['share']}% > {MAX_HOLDER_PERCENTAGE}%")
+            if holder.get("share", 0) > MAX_HOLDER_PERCENTAGE:
                 return False
         return True
     except Exception as e:
-        print(f"❌ Error checking token safety: {e}")
+        print(f"⚠️ Holder safety check failed: {e}", flush=True)
         return False
 
-def check_dexscreener():
-    print(f"\n🕵️ {datetime.utcnow()} - Scanning Solana tokens...\n")
-    try:
-        response = requests.get(DEXSCREENER_API_URL)
-        data = response.json()
-        pairs = data.get("pairs", [])
 
-        print(f"✅ Raw API response keys: {data.keys()} - Total pairs: {len(pairs)}")
+def has_locked_liquidity(token):
+    lp_info = token.get("liquidity", {})
+    return lp_info.get("locked") is True
+
+
+def has_volume_spike(token):
+    try:
+        volume_change = float(token.get("volumeChange", {}).get("h5", 0))
+        return volume_change >= VOLUME_SPIKE_THRESHOLD
+    except:
+        return False
+
+
+def check_dexscreener():
+    print(f"\n🕵️ {datetime.utcnow()} - Scanning Solana tokens...\n", flush=True)
+    try:
+        res = requests.get(DEXSCREENER_API_URL)
+        data = res.json()
+        pairs = data.get("pairs", [])
+        print(f"✅ Raw API response keys: {list(data.keys())}", flush=True)
 
         for token in pairs:
             address = token.get("pairAddress")
-            name = token.get("baseToken", {}).get("name", "Unknown")
-            symbol = token.get("baseToken", {}).get("symbol", "-")
-            liquidity = float(token.get("liquidity", {}).get("usd", 0))
-            volume = float(token.get("volume", {}).get("h5", 0))
-            dex = token.get("dexId", "")
-            url = token.get("url", "")
-            base_token_address = token.get("baseToken", {}).get("address", "")
-
-            print(f"🔎 {symbol} - ${liquidity:,.0f} liquidity / ${volume:,.0f} 5m volume")
-
             if address in SEEN_TOKENS:
-                print("⏭ Already seen.")
                 continue
+
+            name = token.get("baseToken", {}).get("name", "?")
+            liquidity = float(token.get("liquidity", {}).get("usd", 0))
+            volume_5m = float(token.get("volume", {}).get("h5", 0))
+
+            print(f"🔎 {name} | LP ${liquidity:,.0f} | 5m Vol ${volume_5m:,.0f}", flush=True)
+
             if liquidity < MIN_LIQUIDITY_USD:
-                print(f"❌ Skipped: liquidity ${liquidity:,.0f} < ${MIN_LIQUIDITY_USD}")
                 continue
-            if volume < MIN_VOLUME_5M:
-                print(f"❌ Skipped: volume ${volume:,.0f} < ${MIN_VOLUME_5M}")
+            if not is_token_safe(token.get("baseToken", {}).get("address", "")):
                 continue
-            if not token.get("liquidity", {}).get("lockStatus", "").lower() == "locked":
-                print("❌ Skipped: LP not locked")
+            if not has_locked_liquidity(token):
                 continue
-            if not token_is_safe(base_token_address):
-                print("❌ Skipped: holder check failed")
+            if not has_volume_spike(token):
                 continue
 
             SEEN_TOKENS.add(address)
+
             message = (
-                f"<b>🚀 New Solana Token Detected</b>\n"
+                f"<b>🚨 New Solana Token</b>\n"
                 f"<b>Name:</b> {name}\n"
-                f"<b>Symbol:</b> {symbol}\n"
+                f"<b>Symbol:</b> {token.get('baseToken', {}).get('symbol', '-') }\n"
                 f"<b>Liquidity:</b> ${liquidity:,.0f}\n"
-                f"<b>5m Volume:</b> ${volume:,.0f}\n"
-                f"<b>Dex:</b> {dex}\n"
-                f"<b>Pair:</b> <a href='{url}'>View</a>"
+                f"<b>5m Volume:</b> ${volume_5m:,.0f}\n"
+                f"<b>Dex:</b> {token.get('dexId')}\n"
+                f"<b>Pair:</b> <a href='{token.get('url')}'>View</a>"
             )
-            print(f"📢 Sending alert for {symbol}")
             send_telegram_alert(message)
 
     except Exception as e:
-        print(f"❌ Error fetching data: {e}")
-
-# ✅ Notify startup
-send_telegram_alert(
-    "✅ <b>Bot started and ready to snipe</b>\n"
-    "<i>Monitoring Solana tokens every 5 minutes with LP lock, top holders ≤ 5%, "
-    f"liquidity ≥ ${MIN_LIQUIDITY_USD}, and 5m volume ≥ ${MIN_VOLUME_5M}</i>"
-)
-
-# 🔁 Run loop
-if __name__ == "__main__":
-    while True:
-        check_dexscreener()
-        time.sleep(300)  # every 5 minutes
+        print(f"❌ Error fetching or scanning DexScreener data: {e}", flush=True)
+    print("✅
