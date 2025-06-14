@@ -40,9 +40,31 @@ def token_is_safe(token_address):
         print(f"Error in token_is_safe: {e}")
         return False
 
-def send_telegram_alert(message): url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage" payload = { "chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "HTML" } try: response = requests.post(url, json=payload) return response.status_code == 200 except Exception as e: print(f"Telegram send failed: {e}") return False
+def send_telegram_alert(message):
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": message,
+        "parse_mode": "HTML"
+    }
+    try:
+        response = requests.post(url, json=payload)
+        return response.status_code == 200
+    except Exception as e:
+        print(f"Telegram send failed: {e}")
+        return False
 
-def check_dexscreener(): try: response = requests.get(DEXSCREENER_API_URL) pairs = response.json().get("pairs", []) for token in pairs: address = token.get("pairAddress") if address in SEEN_TOKENS: continue
+def check_dexscreener():
+    try:
+        response = requests.get(DEXSCREENER_API_URL)
+        pairs = response.json().get("pairs", [])
+        for token in pairs:
+            address = token.get("pairAddress")
+            if address in SEEN_TOKENS:
+                continue
+            # Further logic goes here (e.g., safety checks, filters, send alert, etc.)
+    except Exception as e:
+        print(f"Error checking Dexscreener: {e}")
 
 liquidity = float(token.get("liquidity", {}).get("usd", 0))
         volume = float(token.get("volume", {}).get("h5", 0))
