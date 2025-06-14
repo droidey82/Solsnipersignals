@@ -6,8 +6,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-load_dotenv()
-
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 BIRDEYE_API_KEY = os.getenv("BIRDEYE_API_KEY")
@@ -18,28 +16,12 @@ HEADERS = {"X-API-KEY": BIRDEYE_API_KEY}
 
 SEEN_TOKENS = set()
 
-Minimums
+# Minimums
+MIN_LIQUIDITY_USD = 10000
+MIN_VOLUME_5M = 15000
+MAX_HOLDER_PERCENTAGE = 5
 
-MIN_LIQUIDITY_USD = 5000
-MIN_VOLUME_5M = 5000
-MAX_HOLDER_PERCENTAGE = 15
-# Token safety checks
-
-def token_is_safe(token_address):
-    try:
-        resp = requests.get(f"{BIRDEYE_BASE_URL}{token_address}/holders", headers=HEADERS)
-        data = resp.json()
-        if not data.get("data"):
-            return False
-        top_holders = data["data"]["list"]
-        for holder in top_holders:
-            if holder["share"] > MAX_HOLDER_PERCENTAGE:
-                return False
-        return True
-    except Exception as e:
-        print(f"Error in token_is_safe: {e}")
-        return False
-
+# Telegram alert sender
 def send_telegram_alert(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
@@ -54,6 +36,23 @@ def send_telegram_alert(message):
         print(f"Telegram send failed: {e}")
         return False
 
+# Token safety check
+def token_is_safe(token_address):
+    try:
+        resp = requests.get(f"{BIRDEYE_BASE_URL}{token_address}/holders", headers=HEADERS)
+        data = resp.json()
+        if not data.get("data"):
+            return False
+        top_holders = data["data"][:5]
+        for holder in top_holders:
+            if holder["share"] > MAX_HOLDER_PERCENTAGE:
+                return False
+        return True
+    except Exception as e:
+        print(f"Error in token_is_safe: {e}")
+        return False
+
+# Main scanner logic
 def check_dexscreener():
     try:
         response = requests.get(DEXSCREENER_API_URL)
@@ -70,36 +69,23 @@ def check_dexscreener():
             if volume < MIN_VOLUME_5M or liquidity < MIN_LIQUIDITY_USD:
                 continue
 
-            # Token safety check
             if not token_is_safe(address):
                 continue
 
             SEEN_TOKENS.add(address)
 
-            # Prepare and send Telegram alert
             name = token.get("baseToken", {}).get("name", "Unknown")
             symbol = token.get("baseToken", {}).get("symbol", "")
             url = token.get("url", "")
-            msg = f"<b>{name} ({symbol})</b>\n💧 Liquidity: ${liquidity:,.0f}\n📊 Volume (5m): ${volume:,.0f}\n🔗 <a href='{url}'>View on Dexscreener</a>"
 
+            msg = f"<b>{name} ({symbol})</b>\nðŸ’§ Liquidity: ${liquidity:,.0f}\nðŸ“Š Volume (5m): ${volume:,.0f}\nðŸ”— <a href='{url}'>View on Dexscreener</a>"
             send_telegram_alert(msg)
 
     except Exception as e:
         print(f"Error in check_dexscreener: {e}")
 
-liquidity = float(token.get("liquidity", {}).get("usd", 0))
-        volume = float(token.get("volume", {}).get("h5", 0))
-        price = token.get("priceUsd", "0")
-        symbol = token.get("baseToken", {}).get("symbol", "")
-        name = token.get("baseToken", {}).get("name", "")
-
-        if liquidity >= MIN_LIQUIDITY_USD and volume >= MIN_VOLUME_5M:
-            if token_is_safe(address):
-                message = f"🚀 <b>New Token Alert</b>\n<b>Name:</b> {name}\n<b>Symbol:</b> {symbol}\n<b>Price:</b> ${price}\n<b>Liquidity:</b> ${liquidity:,.0f}\n<b>Volume 5m:</b> ${volume:,.0f}\n<a href='https://dexscreener.com/solana/{address}'>View on Dexscreener</a>"
-                send_telegram_alert(message)
-                SEEN_TOKENS.add(address)
-except Exception as e:
-    print(f"Error in check_dexscreener: {e}")
-
-if name == "main": while True: check_dexscreener() time.sleep(300)
-
+# Run every 5 minutes
+if __name__ == "__main__":
+    while True:
+        check_dexscreener()
+        time.sleep(300)
