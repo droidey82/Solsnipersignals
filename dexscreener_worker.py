@@ -10,14 +10,9 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 BIRDEYE_API_KEY = os.getenv("BIRDEYE_API_KEY")
 
-if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-    print("⚠️ Missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID in environment!")
-if not BIRDEYE_API_KEY:
-    print("⚠️ Missing BIRDEYE_API_KEY in environment! Skipping holder checks.")
-
 DEXSCREENER_API_URL = "https://api.dexscreener.com/latest/dex/pairs/solana"
 BIRDEYE_BASE_URL = "https://public-api.birdeye.so/public/token/"
-HEADERS = {"X-API-KEY": BIRDEYE_API_KEY} if BIRDEYE_API_KEY else {}
+HEADERS = {"X-API-KEY": BIRDEYE_API_KEY}
 
 MIN_LIQUIDITY_USD = 10000
 MIN_VOLUME_5M = 15000
@@ -25,12 +20,7 @@ MAX_HOLDER_PERCENTAGE = 5
 
 SEEN_TOKENS = set()
 
-
 def send_telegram_alert(message):
-    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        print("❌ Cannot send alert — Telegram env vars missing.")
-        return False
-
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": TELEGRAM_CHAT_ID,
@@ -39,18 +29,12 @@ def send_telegram_alert(message):
     }
     try:
         response = requests.post(url, json=payload)
-        if response.status_code != 200:
-            print(f"❌ Telegram send failed: {response.text}")
         return response.status_code == 200
     except Exception as e:
-        print(f"❌ Telegram send failed: {e}")
+        print(f"Telegram send failed: {e}")
         return False
 
-
 def token_is_safe(token_address):
-    if not BIRDEYE_API_KEY:
-        return True  # Assume safe if we can't check
-
     try:
         resp = requests.get(f"{BIRDEYE_BASE_URL}{token_address}/holders", headers=HEADERS)
         data = resp.json()
@@ -62,9 +46,8 @@ def token_is_safe(token_address):
                 return False
         return True
     except Exception as e:
-        print(f"⚠️ Error in token_is_safe: {e}")
+        print(f"Error in token_is_safe: {e}")
         return False
-
 
 def check_dexscreener():
     try:
@@ -83,15 +66,15 @@ def check_dexscreener():
             if liquidity < MIN_LIQUIDITY_USD or volume < MIN_VOLUME_5M:
                 continue
 
-            base_address = token.get("baseToken", {}).get("address", "")
-            if not token_is_safe(base_address):
+            base_token = token.get("baseToken", {})
+            if not token_is_safe(base_token.get("address", "")):
                 continue
 
             SEEN_TOKENS.add(address)
             message = (
                 f"<b>🚀 New Solana Token Detected</b>\n"
-                f"<b>Name:</b> {token.get('baseToken', {}).get('name', 'Unknown')}\n"
-                f"<b>Symbol:</b> {token.get('baseToken', {}).get('symbol', '-')}\n"
+                f"<b>Name:</b> {base_token.get('name', 'Unknown')}\n"
+                f"<b>Symbol:</b> {base_token.get('symbol', '-')}\n"
                 f"<b>Liquidity:</b> ${liquidity:,.0f}\n"
                 f"<b>5m Volume:</b> ${volume:,.0f}\n"
                 f"<b>Dex:</b> {token.get('dexId')}\n"
@@ -102,28 +85,21 @@ def check_dexscreener():
     except Exception as e:
         print(f"❌ Error fetching DexScreener data: {e}")
 
-
-# ✅ TEST ALERT on startup (once)
-test = send_telegram_alert(
-    "<b>🚀 Test Alert</b>\n"
-    "<b>Name:</b> Example Token\n"
-    "<b>Symbol:</b> EXM\n"
-    "<b>Liquidity:</b> $123,456\n"
-    "<b>5m Volume:</b> $12,345\n"
-    "<b>Dex:</b> Raydium\n"
-    "<b>Pair:</b> <a href='https://dexscreener.com/solana/example'>View</a>"
-)
-print("✅ Test alert sent:", test)
-
-# ✅ TEMPORARY TELEGRAM ALERT TEST
-send_telegram_alert("🚀 Test alert from Render background worker!")
-
+# ✅ Start here
 if __name__ == "__main__":
+    # ✅ Send test alert once on startup
+    test = send_telegram_alert(
+        "<b>🚀 Test Alert</b>\n"
+        "<b>Name:</b> Example Token\n"
+        "<b>Symbol:</b> EXM\n"
+        "<b>Liquidity:</b> $123,456\n"
+        "<b>5m Volume:</b> $12,345\n"
+        "<b>Dex:</b> Raydium\n"
+        "<b>Pair:</b> <a href='https://dexscreener.com/solana/example'>View</a>"
+    )
+    print("✅ Test alert sent:", test)
+
+    # 🔁 Run scanner every 5 minutes
     while True:
         check_dexscreener()
-        time.sleep(300)  # every 5 minutes
-# 🔁 Run loop
-if __name__ == "__main__":
-    while True:
-        check_dexscreener()
-        time.sleep(300)  # every 5 minutes
+        time.sleep(300)
