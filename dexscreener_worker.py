@@ -89,6 +89,8 @@ def check_dexscreener():
 startup_msg = "<b>✅ Bot started and ready to snipe</b>\n<i>Monitoring Solana tokens on DexScreener every 5 minutes</i>"
 send_telegram_alert(startup_msg)
 
+# 🔔 Standalone Test
+send_telegram_alert("🚨 Telegram test alert from Render background worker")
 # 🔁 Run loop
 if __name__ == "__main__":
     while True:
