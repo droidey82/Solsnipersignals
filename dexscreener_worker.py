@@ -64,6 +64,10 @@ def check_dexscreener():
                 continue
 
             volume = float(token.get("volume", {}).get("h5", 0))
+            # Other logic like checking liquidity, holders, etc.
+
+    except Exception as e:
+        print(f"Error in check_dexscreener: {e}")
 
             # Add your logic here to filter on volume
     except Exception as e:
