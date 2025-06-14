@@ -58,20 +58,34 @@ def check_dexscreener():
     try:
         response = requests.get(DEXSCREENER_API_URL)
         pairs = response.json().get("pairs", [])
+
         for token in pairs:
             address = token.get("pairAddress")
             if address in SEEN_TOKENS:
                 continue
 
             volume = float(token.get("volume", {}).get("h5", 0))
-            # Other logic like checking liquidity, holders, etc.
+            liquidity = float(token.get("liquidity", {}).get("usd", 0))
+
+            if volume < MIN_VOLUME_5M or liquidity < MIN_LIQUIDITY_USD:
+                continue
+
+            # Token safety check
+            if not token_is_safe(address):
+                continue
+
+            SEEN_TOKENS.add(address)
+
+            # Prepare and send Telegram alert
+            name = token.get("baseToken", {}).get("name", "Unknown")
+            symbol = token.get("baseToken", {}).get("symbol", "")
+            url = token.get("url", "")
+            msg = f"<b>{name} ({symbol})</b>\n💧 Liquidity: ${liquidity:,.0f}\n📊 Volume (5m): ${volume:,.0f}\n🔗 <a href='{url}'>View on Dexscreener</a>"
+
+            send_telegram_alert(msg)
 
     except Exception as e:
         print(f"Error in check_dexscreener: {e}")
-
-            # Add your logic here to filter on volume
-    except Exception as e:
-        print(f"Error checking Dexscreener: {e}")
 
 liquidity = float(token.get("liquidity", {}).get("usd", 0))
         volume = float(token.get("volume", {}).get("h5", 0))
