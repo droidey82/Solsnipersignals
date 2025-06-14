@@ -25,7 +25,20 @@ MIN_VOLUME_5M = 5000
 MAX_HOLDER_PERCENTAGE = 15
 # Token safety checks
 
-def token_is_safe(token_address): try: resp = requests.get(f"{BIRDEYE_BASE_URL}{token_address}/holders", headers=HEADERS) data = resp.json() if not data.get("data"): return False top_holders = data["data"][:5] for holder in top_holders: if holder["share"] > MAX_HOLDER_PERCENTAGE: return False return True except Exception as e: print(f"Error in token_is_safe: {e}") return False
+def token_is_safe(token_address):
+    try:
+        resp = requests.get(f"{BIRDEYE_BASE_URL}{token_address}/holders", headers=HEADERS)
+        data = resp.json()
+        if not data.get("data"):
+            return False
+        top_holders = data["data"]["list"]
+        for holder in top_holders:
+            if holder["share"] > MAX_HOLDER_PERCENTAGE:
+                return False
+        return True
+    except Exception as e:
+        print(f"Error in token_is_safe: {e}")
+        return False
 
 def send_telegram_alert(message): url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage" payload = { "chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "HTML" } try: response = requests.post(url, json=payload) return response.status_code == 200 except Exception as e: print(f"Telegram send failed: {e}") return False
 
