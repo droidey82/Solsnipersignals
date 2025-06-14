@@ -115,7 +115,13 @@ test = send_telegram_alert(
 )
 print("✅ Test alert sent:", test)
 
+# ✅ TEMPORARY TELEGRAM ALERT TEST
+send_telegram_alert("🚀 Test alert from Render background worker!")
 
+if __name__ == "__main__":
+    while True:
+        check_dexscreener()
+        time.sleep(300)  # every 5 minutes
 # 🔁 Run loop
 if __name__ == "__main__":
     while True:
