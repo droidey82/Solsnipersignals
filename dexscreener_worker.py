@@ -10,7 +10,7 @@ scope = [
     "https://spreadsheets.google.com/feeds",
     "https://www.googleapis.com/auth/drive"
 ]
-creds = ServiceAccountCredentials.from_json_keyfile_name("/etc/secrets/google_creds_json", scope)
+creds = ServiceAccountCredentials.from_json_keyfile_name("/etc/secrets/GOOGLE_CREDS_JSON", scope)
 gc = gspread.authorize(creds)
 sheet = gc.open("Sol Sniper Logs").sheet1
 
