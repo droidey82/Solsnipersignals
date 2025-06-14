@@ -1,7 +1,7 @@
 import os
 import requests
 import time
-from datetime import datetime, timezone
+from datetime import datetime
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -17,6 +17,8 @@ HEADERS = {"X-API-KEY": BIRDEYE_API_KEY}
 MIN_LIQUIDITY_USD = 10000
 MIN_VOLUME_5M = 15000
 MAX_HOLDER_PERCENTAGE = 5
+MIN_VOLUME_SPIKE_PCT = 20
+
 SEEN_TOKENS = set()
 
 def send_telegram_alert(message):
@@ -28,11 +30,10 @@ def send_telegram_alert(message):
     }
     try:
         response = requests.post(url, json=payload)
-        print("Telegram status:", response.status_code)
-        print("Response:", response.text)
+        print(f"Telegram status: {response.status_code} - {response.text}")
         return response.status_code == 200
     except Exception as e:
-        print(f"Telegram send failed: {e}")
+        print(f"Telegram error: {e}")
         return False
 
 def token_is_safe(token_address):
@@ -43,68 +44,78 @@ def token_is_safe(token_address):
             return False
         top_holders = data["data"][:5]
         for holder in top_holders:
-            if holder.get("share", 0) > MAX_HOLDER_PERCENTAGE:
-                print(f"❌ Top holder share too high: {holder['share']}%")
+            if holder["share"] > MAX_HOLDER_PERCENTAGE:
+                print(f"❌ Top holder exceeds {MAX_HOLDER_PERCENTAGE}%: {holder['share']}")
                 return False
         return True
     except Exception as e:
-        print(f"Error in token_is_safe: {e}")
+        print(f"Holder check failed: {e}")
         return False
 
+def is_lp_locked(token):
+    info = token.get("liquidity", {}).get("lock", "")
+    return "locked" in str(info).lower() or "burned" in str(info).lower()
+
 def check_dexscreener():
-    print(f"\n🕵️ {datetime.utcnow()} - Scanning Solana tokens...\n")
+    print(f"\n🔍 {datetime.utcnow()} - Scanning Solana pairs...\n")
     try:
         response = requests.get(DEXSCREENER_API_URL)
         pairs = response.json().get("pairs", [])
-
-        if not pairs:
-            print("❌ No token pairs returned from DexScreener.")
-            return
-
-        print(f"✅ Found {len(pairs)} pairs to check.")
+        print(f"✅ Retrieved {len(pairs)} pairs from DexScreener")
 
         for token in pairs:
-            name = token.get("baseToken", {}).get("name", "Unknown")
-            symbol = token.get("baseToken", {}).get("symbol", "???")
             address = token.get("pairAddress")
-            print(f"🔎 Checking {name} ({symbol}) at {address}")
-
             if address in SEEN_TOKENS:
                 continue
 
             liquidity = float(token.get("liquidity", {}).get("usd", 0))
-            volume = float(token.get("volume", {}).get("h5", 0))
+            volume_5m = float(token.get("volume", {}).get("h5", 0))
+            volume_15m = float(token.get("volume", {}).get("h15", 1)) or 1  # avoid div by 0
+            volume_spike_pct = ((volume_5m - (volume_15m / 3)) / (volume_15m / 3)) * 100
 
-            if liquidity < MIN_LIQUIDITY_USD or volume < MIN_VOLUME_5M:
+            print(f"🔸 {token.get('baseToken', {}).get('symbol', '-')} - ${liquidity} liquidity / ${volume_5m} 5m vol / {volume_spike_pct:.1f}% spike")
+
+            if liquidity < MIN_LIQUIDITY_USD:
+                print("⛔ Skipped: Insufficient liquidity")
                 continue
-
+            if volume_5m < MIN_VOLUME_5M:
+                print("⛔ Skipped: Low volume")
+                continue
+            if volume_spike_pct < MIN_VOLUME_SPIKE_PCT:
+                print("⛔ Skipped: No significant volume spike")
+                continue
+            if not is_lp_locked(token):
+                print("⛔ Skipped: LP not locked")
+                continue
             if not token_is_safe(token.get("baseToken", {}).get("address", "")):
+                print("⛔ Skipped: Unsafe holder concentration")
                 continue
 
             SEEN_TOKENS.add(address)
             message = (
-                f"<b>🚀 New Solana Token Detected</b>\n"
-                f"<b>Name:</b> {name}\n"
-                f"<b>Symbol:</b> {symbol}\n"
+                f"<b>🚨 New Solana Token Detected</b>\n"
+                f"<b>Name:</b> {token.get('baseToken', {}).get('name', '-')}\n"
+                f"<b>Symbol:</b> {token.get('baseToken', {}).get('symbol', '-')}\n"
                 f"<b>Liquidity:</b> ${liquidity:,.0f}\n"
-                f"<b>5m Volume:</b> ${volume:,.0f}\n"
+                f"<b>5m Volume:</b> ${volume_5m:,.0f}\n"
+                f"<b>Spike:</b> {volume_spike_pct:.1f}%\n"
                 f"<b>Dex:</b> {token.get('dexId')}\n"
                 f"<b>Pair:</b> <a href='{token.get('url')}'>View</a>"
             )
             send_telegram_alert(message)
 
     except Exception as e:
-        print(f"[❌] Dexscreener fetch error: {e}")
+        print(f"❌ Error scanning DexScreener: {e}")
 
-# ✅ Startup message
-startup_msg = (
-    "✅ <b>Bot started and ready to snipe</b>\n"
-    "<i>Monitoring Solana tokens every 5 minutes with LP lock, top holders ≤ 5% and min $10k liquidity</i>"
+# ✅ Startup notice
+send_telegram_alert(
+    "✅ Bot started and ready to snipe\n"
+    "Monitoring Solana tokens every 5 minutes with LP lock, top holders ≤ 5%, "
+    "volume ≥ $15k, and 20% spike detection"
 )
-send_telegram_alert(startup_msg)
 
-# 🔁 Run loop
+# 🔁 Main loop
 if __name__ == "__main__":
     while True:
         check_dexscreener()
-        time.sleep(300)  # every 5 minutes
+        time.sleep(300)
