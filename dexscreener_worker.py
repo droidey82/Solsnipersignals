@@ -2,9 +2,9 @@ import requests
 import os
 import time
 from datetime import datetime
-from dotenv import load_dotenv
+from dotenv import 
 
-Load environment variables
+# Load environment variables
 
 load_dotenv()
 
