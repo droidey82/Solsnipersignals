@@ -60,8 +60,10 @@ def check_dexscreener():
     print(f"\n🔍 {datetime.utcnow()} - Scanning Solana pairs...\n")
     try:
         response = requests.get(DEXSCREENER_API_URL)
-        pairs = response.json().get("pairs", [])
-        print(f"✅ Retrieved {len(pairs)} pairs from DexScreener")
+        data = response.json()
+print(f"✅ Raw API response keys: {data.keys()}")
+pairs = data.get("pairs", [])
+print(f"✅ Retrieved {len(pairs)} pairs from DexScreener")
 
         for token in pairs:
             address = token.get("pairAddress")
