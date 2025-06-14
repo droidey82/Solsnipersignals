@@ -1,38 +1,38 @@
-import os
-import requests
-import time
-from datetime import datetime
+import os import requests import time from datetime import datetime from dotenv import load_dotenv
+
+load_dotenv()
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN") TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID") BIRDEYE_API_KEY = os.getenv("BIRDEYE_API_KEY")
 
-TELEGRAM_API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage" HEADERS = {"X-API-KEY": BIRDEYE_API_KEY}
+DEXSCREENER_API_URL = "https://api.dexscreener.com/latest/dex/pairs/solana" BIRDEYE_BASE_URL = "https://public-api.birdeye.so/public/token/" HEADERS = {"X-API-KEY": BIRDEYE_API_KEY}
 
-MIN_VOLUME = 15000 MIN_LIQUIDITY = 10000 TOP_HOLDER_THRESHOLD = 0.80
+SEEN_TOKENS = set()
 
-SOLANA_TOKENS_URL = "https://public-api.birdeye.so/public/tokenlist?sort_by=volume_24h&chain=solana" HOLDERS_API = "https://public-api.birdeye.so/public/token/holders" TOKEN_INFO_API = "https://public-api.birdeye.so/public/token/"
+Minimums
 
-def get_top_tokens(): try: r = requests.get(SOLANA_TOKENS_URL, headers=HEADERS) r.raise_for_status() tokens = r.json().get("data", []) return [t for t in tokens if t.get("liquidity") >= MIN_LIQUIDITY and t.get("volume_24h") >= MIN_VOLUME] except Exception as e: print(f"[ERROR] Fetching tokens: {e}") return []
+MIN_LIQUIDITY_USD = 10000 MIN_VOLUME_5M = 15000 MAX_HOLDER_PERCENTAGE = 5
 
-def is_bundle(token_info): return token_info.get("is_lp") or token_info.get("lp_holders")
+Token safety checks
 
-def is_mintable_or_owned(token_info): return token_info.get("can_mint", False) or not token_info.get("is_renounced", False)
+def token_is_safe(token_address): try: resp = requests.get(f"{BIRDEYE_BASE_URL}{token_address}/holders", headers=HEADERS) data = resp.json() if not data.get("data"): return False top_holders = data["data"][:5] for holder in top_holders: if holder["share"] > MAX_HOLDER_PERCENTAGE: return False return True except Exception as e: print(f"Error in token_is_safe: {e}") return False
 
-def top_holders_safe(token_address): try: r = requests.get(f"{HOLDERS_API}?address={token_address}&limit=5", headers=HEADERS) holders = r.json().get("data", []) total_pct = sum(float(h.get("holding_percent", 0)) for h in holders) return total_pct <= (TOP_HOLDER_THRESHOLD * 100) except Exception as e: print(f"[WARN] Holder check failed: {e}") return False
+def send_telegram_alert(message): url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage" payload = { "chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "HTML" } try: response = requests.post(url, json=payload) return response.status_code == 200 except Exception as e: print(f"Telegram send failed: {e}") return False
 
-def fetch_token_info(address): try: r = requests.get(f"{TOKEN_INFO_API}{address}?chain=solana", headers=HEADERS) return r.json().get("data", {}) except Exception as e: print(f"[ERROR] Token info fetch failed: {e}") return {}
+def check_dexscreener(): try: response = requests.get(DEXSCREENER_API_URL) pairs = response.json().get("pairs", []) for token in pairs: address = token.get("pairAddress") if address in SEEN_TOKENS: continue
 
-def send_alert(token): msg = ( f"<b>🚨 A-Grade Solana Token Detected</b>\n" f"Name: <b>{token.get('name')}</b>\n" f"Symbol: <code>{token.get('symbol')}</code>\n" f"Volume 24h: <code>${int(token.get('volume_24h')):,}</code>\n" f"Liquidity: <code>${int(token.get('liquidity')):,}</code>\n" f"Link: https://dexscreener.com/solana/{token.get('address')}" ) try: requests.post(TELEGRAM_API_URL, json={ "chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "HTML" }) print(f"[ALERT] Sent: {token.get('symbol')}") except Exception as e: print(f"[ERROR] Telegram send failed: {e}")
+liquidity = float(token.get("liquidity", {}).get("usd", 0))
+        volume = float(token.get("volume", {}).get("h5", 0))
+        price = token.get("priceUsd", "0")
+        symbol = token.get("baseToken", {}).get("symbol", "")
+        name = token.get("baseToken", {}).get("name", "")
 
-def run_scan(): print(f"[{datetime.utcnow()}] Scanning for A-grade tokens...") tokens = get_top_tokens() for token in tokens: address = token.get("address") info = fetch_token_info(address)
+        if liquidity >= MIN_LIQUIDITY_USD and volume >= MIN_VOLUME_5M:
+            if token_is_safe(address):
+                message = f"🚀 <b>New Token Alert</b>\n<b>Name:</b> {name}\n<b>Symbol:</b> {symbol}\n<b>Price:</b> ${price}\n<b>Liquidity:</b> ${liquidity:,.0f}\n<b>Volume 5m:</b> ${volume:,.0f}\n<a href='https://dexscreener.com/solana/{address}'>View on Dexscreener</a>"
+                send_telegram_alert(message)
+                SEEN_TOKENS.add(address)
+except Exception as e:
+    print(f"Error in check_dexscreener: {e}")
 
-if is_bundle(info):
-        continue
-    if is_mintable_or_owned(info):
-        continue
-    if not top_holders_safe(address):
-        continue
-
-    send_alert(token)
-
-if name == "main": while True: run_scan() time.sleep(300)
+if name == "main": while True: check_dexscreener() time.sleep(300)
 
