@@ -29,7 +29,7 @@ def send_telegram_alert(message):
     }
     try:
         response = requests.post(url, json=payload)
-        print("✅ Telegram alert status:", response.status_code)
+        print(f"✅ Telegram alert status: {response.status_code}")
         return response.status_code == 200
     except Exception as e:
         print(f"❌ Telegram send failed: {e}")
@@ -85,11 +85,16 @@ def check_dexscreener():
     except Exception as e:
         print(f"❌ Error fetching DexScreener data: {e}")
 
-# ✅ Telegram startup test alert
-send_telegram_alert("<b>✅ Bot started and ready</b>\n<i>DexScreener scan begins now</i>")
-send_telegram_alert("🚨 This is a test alert from Render background worker.")
+# ✅ Send startup test alert
+if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
+    test_sent = send_telegram_alert(
+        "<b>✅ Bot started and ready</b>\n<i>DexScreener scanning every 5 mins</i>"
+    )
+    print("✅ Startup alert sent:", test_sent)
+else:
+    print("❌ Telegram environment variables not set")
 
-# 🔁 Run loop
+# 🔁 Main loop
 if __name__ == "__main__":
     while True:
         check_dexscreener()
