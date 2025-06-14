@@ -1,99 +1,102 @@
 import os
-import time
-import json
 import requests
+import time
 from datetime import datetime, timezone
-from dotenv import load_dotenv
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
-load_dotenv()
-
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-BIRDEYE_API_KEY = os.getenv("BIRDEYE_API_KEY")
-GOOGLE_CREDS_JSON = os.getenv("GOOGLE_CREDS")
-
-TELEGRAM_API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-
-scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-creds_dict = json.loads(GOOGLE_CREDS_JSON)
-creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+# Google Sheets setup (with secret file)
+scope = [
+    "https://spreadsheets.google.com/feeds",
+    "https://www.googleapis.com/auth/drive"
+]
+creds = ServiceAccountCredentials.from_json_keyfile_name("/etc/secrets/google_creds.json", scope)
 gc = gspread.authorize(creds)
 sheet = gc.open("Sol Sniper Logs").sheet1
 
+# Telegram setup
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+
+DEXSCREENER_URL = "https://api.dexscreener.com/latest/dex/pairs/solana"
+
+
 def send_telegram_alert(message):
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": TELEGRAM_CHAT_ID,
         "text": message,
         "parse_mode": "HTML"
     }
     try:
-        response = requests.post(TELEGRAM_API_URL, json=payload)
-        print("📨 Telegram response:", response.status_code, response.text)
-        return response.status_code == 200
+        response = requests.post(url, json=payload)
+        print("Telegram response:", response.status_code, response.text)
     except Exception as e:
-        print("❌ Telegram error:", e)
-        return False
+        print("❌ Error sending Telegram alert:", str(e))
 
-def log_to_sheet(token_name, token_symbol, liquidity, volume, url):
-    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-    row = [timestamp, token_name, token_symbol, liquidity, volume, url]
-    sheet.append_row(row)
+
+def log_to_sheet(token_name, symbol, liquidity, volume, dex, pair_url):
+    try:
+        sheet.append_row([
+            str(datetime.now(timezone.utc)), token_name, symbol,
+            f"${liquidity:,}", f"${volume:,}", dex, pair_url
+        ])
+        print("✅ Logged to Google Sheet")
+    except Exception as e:
+        print("❌ Error logging to Google Sheet:", e)
+
 
 def check_dexscreener():
     print(f"\n🧪 {datetime.utcnow()} - Scanning Solana tokens...", flush=True)
     try:
-        url = "https://api.dexscreener.com/latest/dex/pairs/solana"
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        data = response.json()
+        res = requests.get(DEXSCREENER_URL)
+        data = res.json()
+        pairs = data.get("pairs", [])
 
-        tokens = data.get("pairs", [])
-        print(f"🔍 {len(tokens)} tokens found on Solana.")
+        print(f"🧪 Found {len(pairs)} tokens, applying filters...")
 
-        for token in tokens:
+        for pair in pairs:
             try:
-                name = token.get("baseToken", {}).get("name", "N/A")
-                symbol = token.get("baseToken", {}).get("symbol", "N/A")
-                liquidity = float(token.get("liquidity", {}).get("usd", 0))
-                volume_5m = float(token.get("volume", {}).get("usd", 0))
-                pair_url = token.get("url", "")
-                dex = token.get("dexId", "")
+                token_name = pair.get("baseToken", {}).get("name", "N/A")
+                symbol = pair.get("baseToken", {}).get("symbol", "N/A")
+                liquidity = float(pair.get("liquidity", {}).get("usd", 0))
+                volume = float(pair.get("volume", {}).get("h24", 0))
+                dex = pair.get("dexId", "N/A")
+                url = pair.get("url", "")
+                holders = pair.get("holders", [])
+                top_holder = max(holders, key=lambda h: h.get("share", 0), default={}).get("share", 0)
+                lp_locked = "UNLOCKED" not in pair.get("liquidity", {}).get("lockStatus", "LOCKED")
 
-                if liquidity < 10000:
-                    continue
-                if volume_5m < 1.2 * (token.get("volume", {}).get("usd", 0) / 12):  # ~20% increase
-                    continue
-                if not token.get("liquidity", {}).get("lockStatus", "").lower().startswith("locked"):
-                    continue
+                if liquidity >= 10000 and top_holder <= 5 and lp_locked:
+                    msg = (
+                        f"<b>🚀 Token Alert</b>\n"
+                        f"<b>Name:</b> {token_name}\n"
+                        f"<b>Symbol:</b> {symbol}\n"
+                        f"<b>Liquidity:</b> ${liquidity:,.0f}\n"
+                        f"<b>Top Holder:</b> {top_holder:.2f}%\n"
+                        f"<b>Dex:</b> {dex}\n"
+                        f"<b>Pair:</b> <a href='{url}'>View on Dexscreener</a>"
+                    )
+                    send_telegram_alert(msg)
+                    log_to_sheet(token_name, symbol, liquidity, volume, dex, url)
 
-                message = (
-                    f"<b>🚀 New Token Alert</b>\n"
-                    f"<b>Name:</b> {name}\n"
-                    f"<b>Symbol:</b> {symbol}\n"
-                    f"<b>Liquidity:</b> ${liquidity:,.0f}\n"
-                    f"<b>5m Volume:</b> ${volume_5m:,.0f}\n"
-                    f"<b>Dex:</b> {dex}\n"
-                    f"<b>Link:</b> <a href='{pair_url}'>Chart</a>"
-                )
-                if send_telegram_alert(message):
-                    log_to_sheet(name, symbol, liquidity, volume_5m, pair_url)
+            except Exception as inner:
+                print("⚠️ Error with token:", inner)
 
-            except Exception as token_err:
-                print("⚠️ Token scan error:", token_err)
+    except Exception as outer:
+        print("❌ Error fetching or scanning DexScreener data:", outer)
 
-    except Exception as e:
-        print("❌ Error fetching DexScreener data:", e)
 
+# Startup message
+startup_msg = (
+    "✅ <b>Bot started and ready to snipe</b>\n"
+    "<i>Monitoring Solana tokens every 5 minutes with LP lock, top holders ≤ 5% and min $10k liquidity</i>"
+)
+send_telegram_alert(startup_msg)
+
+# Run loop
 if __name__ == "__main__":
-    startup_msg = (
-        "✅ <b>Bot started and ready to snipe</b>\n"
-        "<i>Monitoring Solana tokens every 5 minutes with LP lock, top holders \u2264 5% and min $10k liquidity</i>"
-    )
-    send_telegram_alert(startup_msg)
-
     while True:
         check_dexscreener()
-        print("✅ Finished scan, sleeping 5m")
+        print("✅ Finished scan, sleeping 5m\n")
         time.sleep(300)
