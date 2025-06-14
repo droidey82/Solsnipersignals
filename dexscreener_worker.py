@@ -1,28 +1,18 @@
-import os
-import requests
-import time
-from datetime import datetime
-from dotenv import load_dotenv
+import os import requests import time from datetime import datetime from dotenv import load_dotenv
 
 load_dotenv()
 
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-BIRDEYE_API_KEY = os.getenv("BIRDEYE_API_KEY")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN") TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID") BIRDEYE_API_KEY = os.getenv("BIRDEYE_API_KEY")
 
-DEXSCREENER_API_URL = "https://api.dexscreener.com/latest/dex/pairs/solana"
-BIRDEYE_BASE_URL = "https://public-api.birdeye.so/public/token/"
-HEADERS = {"X-API-KEY": BIRDEYE_API_KEY}
+DEXSCREENER_API_URL = "https://api.dexscreener.com/latest/dex/pairs/solana" BIRDEYE_BASE_URL = "https://public-api.birdeye.so/public/token/" HEADERS = {"X-API-KEY": BIRDEYE_API_KEY}
 
 SEEN_TOKENS = set()
 
 Minimums
 
-MIN_LIQUIDITY_USD = 10000
-MIN_VOLUME_5M = 15000
-MAX_HOLDER_PERCENTAGE = 5
+MIN_LIQUIDITY_USD = 10000 MIN_VOLUME_5M = 15000 MAX_HOLDER_PERCENTAGE = 5
 
-# Token safety checks
+Token safety checks
 
 def token_is_safe(token_address): try: resp = requests.get(f"{BIRDEYE_BASE_URL}{token_address}/holders", headers=HEADERS) data = resp.json() if not data.get("data"): return False top_holders = data["data"][:5] for holder in top_holders: if holder["share"] > MAX_HOLDER_PERCENTAGE: return False return True except Exception as e: print(f"Error in token_is_safe: {e}") return False
 
