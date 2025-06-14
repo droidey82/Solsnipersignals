@@ -91,3 +91,13 @@ if __name__ == "__main__":
     while True:
         check_dexscreener()
         time.sleep(300)  # every 5 minutes
+# TEMPORARY TEST ALERT
+send_telegram_alert(
+    "<b>🚀 Test Alert</b>\n"
+    "<b>Name:</b> Example Token\n"
+    "<b>Symbol:</b> EXM\n"
+    "<b>Liquidity:</b> $123,456\n"
+    "<b>5m Volume:</b> $12,345\n"
+    "<b>Dex:</b> Raydium\n"
+    "<b>Pair:</b> <a href='https://dexscreener.com/solana/example'>View</a>"
+)
