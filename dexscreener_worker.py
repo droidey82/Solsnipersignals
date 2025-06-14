@@ -14,9 +14,9 @@ DEXSCREENER_API_URL = "https://api.dexscreener.com/latest/dex/pairs/solana"
 BIRDEYE_BASE_URL = "https://public-api.birdeye.so/public/token/"
 HEADERS = {"X-API-KEY": BIRDEYE_API_KEY}
 
-MIN_LIQUIDITY_USD = 10000
-MIN_VOLUME_5M = 15000
-MAX_HOLDER_PERCENTAGE = 5
+MIN_LIQUIDITY_USD = 1000  # Lowered for testing
+MIN_VOLUME_5M = 500
+MAX_HOLDER_PERCENTAGE = 100  # Allow almost anything through
 
 SEEN_TOKENS = set()
 
@@ -29,9 +29,10 @@ def send_telegram_alert(message):
     }
     try:
         response = requests.post(url, json=payload)
+        print("📨 Telegram response:", response.status_code, response.text)
         return response.status_code == 200
     except Exception as e:
-        print(f"Telegram send failed: {e}")
+        print(f"❌ Telegram send failed: {e}")
         return False
 
 def token_is_safe(token_address):
@@ -46,7 +47,7 @@ def token_is_safe(token_address):
                 return False
         return True
     except Exception as e:
-        print(f"Error in token_is_safe: {e}")
+        print(f"⚠️ Error in token_is_safe: {e}")
         return False
 
 def check_dexscreener():
@@ -66,15 +67,15 @@ def check_dexscreener():
             if liquidity < MIN_LIQUIDITY_USD or volume < MIN_VOLUME_5M:
                 continue
 
-            base_token = token.get("baseToken", {})
-            if not token_is_safe(base_token.get("address", "")):
+            base_token_address = token.get("baseToken", {}).get("address", "")
+            if not token_is_safe(base_token_address):
                 continue
 
             SEEN_TOKENS.add(address)
             message = (
                 f"<b>🚀 New Solana Token Detected</b>\n"
-                f"<b>Name:</b> {base_token.get('name', 'Unknown')}\n"
-                f"<b>Symbol:</b> {base_token.get('symbol', '-')}\n"
+                f"<b>Name:</b> {token.get('baseToken', {}).get('name', 'Unknown')}\n"
+                f"<b>Symbol:</b> {token.get('baseToken', {}).get('symbol', '-')}\n"
                 f"<b>Liquidity:</b> ${liquidity:,.0f}\n"
                 f"<b>5m Volume:</b> ${volume:,.0f}\n"
                 f"<b>Dex:</b> {token.get('dexId')}\n"
@@ -85,9 +86,8 @@ def check_dexscreener():
     except Exception as e:
         print(f"❌ Error fetching DexScreener data: {e}")
 
-# ✅ Start here
+# ✅ Send test alert on startup
 if __name__ == "__main__":
-    # ✅ Send test alert once on startup
     test = send_telegram_alert(
         "<b>🚀 Test Alert</b>\n"
         "<b>Name:</b> Example Token\n"
@@ -99,7 +99,7 @@ if __name__ == "__main__":
     )
     print("✅ Test alert sent:", test)
 
-    # 🔁 Run scanner every 5 minutes
+    # 🔁 Start scanner loop
     while True:
         check_dexscreener()
         time.sleep(300)
