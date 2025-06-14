@@ -62,7 +62,10 @@ def check_dexscreener():
             address = token.get("pairAddress")
             if address in SEEN_TOKENS:
                 continue
-            # Further logic goes here (e.g., safety checks, filters, send alert, etc.)
+
+            volume = float(token.get("volume", {}).get("h5", 0))
+
+            # Add your logic here to filter on volume
     except Exception as e:
         print(f"Error checking Dexscreener: {e}")
 
