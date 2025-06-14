@@ -18,3 +18,39 @@ def token_is_safe(token_address): try: resp = requests.get(f"{BIRDEYE_BASE_URL}{
 
 def check_dexscreener(): try: print(f"[{datetime.utcnow()}] Scanning Solana pairs...") response = requests.get(DEXSCREENER_API_URL) pairs = response.json().get("pairs", [])
 
+for token in pairs:
+        address = token.get("pairAddress")
+        if address in SEEN_TOKENS:
+            continue
+
+        liquidity = float(token.get("liquidity", {}).get("usd", 0))
+        volume = float(token.get("volume", {}).get("h5", 0))
+
+        if liquidity < MIN_LIQUIDITY_USD or volume < MIN_VOLUME_5M:
+            continue
+
+        base_address = token.get("baseToken", {}).get("address", "")
+        if not token_is_safe(base_address):
+            continue
+
+        SEEN_TOKENS.add(address)
+
+        message = (
+            f"<b>🚀 New Solana Token Detected</b>\n"
+            f"<b>Name:</b> {token.get('baseToken', {}).get('name', 'Unknown')}\n"
+            f"<b>Symbol:</b> {token.get('baseToken', {}).get('symbol', '-')}\n"
+            f"<b>Liquidity:</b> ${liquidity:,.0f}\n"
+            f"<b>5m Volume:</b> ${volume:,.0f}\n"
+            f"<b>Dex:</b> {token.get('dexId')}\n"
+            f"<b>Pair:</b> <a href='{token.get('url')}'>View</a>"
+        )
+        send_telegram_alert(message)
+except Exception as e:
+    print(f"❌ Error fetching DexScreener data: {e}")
+
+Send test alert on startup
+
+send_telegram_alert("✅ Bot started and ready to snipe 🔍")
+
+if name == "main": while True: check_dexscreener() time.sleep(300)
+
