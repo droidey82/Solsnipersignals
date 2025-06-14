@@ -1,4 +1,4 @@
-Flask
-requests
-gspread
-oauth2client
+Flask==2.2.5
+requests==2.31.0
+gspread==5.11.3
+oauth2client==4.1.3
