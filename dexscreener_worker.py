@@ -1,8 +1,6 @@
 import sys
-print("Using Python version:", sys.version)
 import os
 import requests
-import json
 import time
 from datetime import datetime
 from oauth2client.service_account import ServiceAccountCredentials
@@ -16,18 +14,14 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 BIRDEYE_API_KEY = os.getenv("BIRDEYE_API_KEY")
 
-# --- Send Telegram Alert ---
 def send_telegram_alert(msg):
     try:
-        if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-            raise Exception("TELEGRAM_TOKEN or TELEGRAM_CHAT_ID not set")
         bot = Bot(token=TELEGRAM_TOKEN)
         response = bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=msg)
-        print(f"\U0001f4e4 Telegram response: {response}")
+        print("Telegram alert sent.")
     except Exception as e:
-        print(f"\u274c Telegram error: {e}")
+        print(f"Telegram error: {e}")
 
-# --- Log to Google Sheets ---
 def log_to_google_sheets(row):
     try:
         scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
@@ -37,61 +31,59 @@ def log_to_google_sheets(row):
         sheet = client.open("Sol Sniper Logs").sheet1
         sheet.append_row(row)
     except Exception as e:
-        print(f"\u274c Google Sheets error: {e}")
+        print(f"Google Sheets error: {e}")
 
-# --- Scan Birdeye for Solana tokens ---
 def scan_tokens():
-    print(f"\n\U0001f9cd‍♂️ {datetime.utcnow()} - Scanning Solana tokens...", flush=True)
-    url = "https://public-api.birdeye.so/public/tokenlist?sort_by=volume_h24_usd&sort_type=desc&limit=50&offset=0&chain=solana"
+    print(f"\n🙍‍♂️ {datetime.utcnow()} - Scanning Solana tokens...")
+    url = "https://public-api.birdeye.so/public/tokenlist?sort_by=volume_h24&order=desc&offset=0&limit=50"
     headers = {
-        "X-API-KEY": BIRDEYE_API_KEY,
-        "accept": "application/json"
+        "X-API-KEY": BIRDEYE_API_KEY
     }
 
-    response = requests.get(url, headers=headers)
-    print(f"\U0001f4f1 Birdeye status: {response.status_code}")
-    if response.status_code != 200:
-        raise Exception(f"Invalid Birdeye API response: {response.status_code} - {response.text[:100]}")
+    try:
+        response = requests.get(url, headers=headers)
+        print(f"📘 Birdeye status: {response.status_code}")
 
-    data = response.json()
-    tokens = data.get("data", [])
-    if not tokens:
-        print("\U0001f534 No tokens returned.")
-        return
+        if response.status_code != 200:
+            raise Exception(f"Invalid Birdeye API response: {response.status_code} - {response.text[:100]}")
 
-    for token in tokens:
-        try:
-            name = token.get("name")
-            symbol = token.get("symbol")
-            liquidity = float(token.get("liquidity", {}).get("usd", 0))
-            volume = float(token.get("volume_h24", 0))
+        data = response.json().get("data", [])
+        filtered = []
 
-            if liquidity >= 10000 and volume >= 10000:
-                msg = (
-                    f"\U0001f525 {name} ({symbol})\n"
-                    f"Liquidity: ${liquidity:,.0f}\n"
-                    f"Volume (24h): ${volume:,.0f}\n"
-                    f"Birdeye: https://birdeye.so/token/{token['address']}?chain=solana"
-                )
-                send_telegram_alert(msg)
-                log_to_google_sheets([
-                    datetime.utcnow().isoformat(),
-                    name,
-                    symbol,
-                    liquidity,
-                    volume,
-                    f"https://birdeye.so/token/{token['address']}?chain=solana"
-                ])
-        except Exception as e:
-            print(f"Error processing token: {e}", flush=True)
+        for token in data:
+            try:
+                liquidity = float(token.get("liquidity", 0))
+                volume = float(token.get("volume_h24", 0))
 
-    print("\u2705 Scan complete.\n", flush=True)
+                if liquidity >= 10000 and volume >= 10000:
+                    msg = (
+                        f"🔥 {token['name']} ({token['symbol']})\n"
+                        f"Liquidity: ${liquidity:,.0f}\n"
+                        f"Volume (24h): ${volume:,.0f}\n"
+                        f"URL: https://birdeye.so/token/{token['address']}?chain=solana"
+                    )
+                    send_telegram_alert(msg)
+                    log_to_google_sheets([
+                        datetime.utcnow().isoformat(),
+                        token['name'],
+                        token['symbol'],
+                        liquidity,
+                        volume,
+                        token['address']
+                    ])
+                    filtered.append(msg)
+            except Exception as e:
+                print(f"Error parsing token: {e}")
 
-# --- Main loop ---
+        print(f"✅ Scan complete. {len(filtered)} tokens passed filters.")
+
+    except Exception as e:
+        print(f"🚨 Exception: {e}")
+
 if __name__ == "__main__":
-    send_telegram_alert("\u2705 Birdeye Bot Started - Monitoring Solana tokens with $10k+ liquidity & volume")
+    send_telegram_alert("✅ Birdeye bot is now live! Monitoring Solana tokens with $10k+ liquidity & volume")
     time.sleep(10)
     while True:
         scan_tokens()
-        print("\u23f3 Sleeping for 5 minutes...\n", flush=True)
+        print("⏳ Sleeping 5 min...")
         time.sleep(300)
