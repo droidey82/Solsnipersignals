@@ -40,7 +40,7 @@ def log_to_google_sheets(row):
 # --- Scan DexScreener for Solana tokens ---
 def scan_tokens():
     print(f"\n🙍‍♂️ {datetime.utcnow()} - Scanning Solana tokens...", flush=True)
-    url = "https://api.dexscreener.io/latest/dex/pairs/solana"
+    url = "https://api.dexscreener.io/latest/dex/pairs"
     headers = {
         "User-Agent": "Mozilla/5.0",
         "Accept": "application/json"
@@ -58,6 +58,8 @@ def scan_tokens():
             raise Exception(f"Invalid DexScreener API response: {response.status_code} - {response.text[:100]}")
 
         if "application/json" not in response.headers.get("Content-Type", ""):
+            print("⚠️ Unexpected content:")
+            print(response.text[:300])
             raise Exception("DexScreener did not return JSON. URL may be broken or changed.")
 
         data = response.json()
@@ -68,6 +70,9 @@ def scan_tokens():
 
         filtered = []
         for pair in pairs:
+            if pair.get("chainId") != "solana":
+                continue
+
             try:
                 base_token = pair["baseToken"]
                 liquidity = float(pair.get("liquidity", {}).get("usd", 0))
