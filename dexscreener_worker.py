@@ -15,8 +15,9 @@ GOOGLE_CREDS_JSON = os.getenv("GOOGLE_CREDS_JSON")
 
 # Prepare Google Sheets
 scope = ["https://www.googleapis.com/auth/spreadsheets"]
-creds_dict = json.loads(GOOGLE_CREDS_JSON)
-creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
+creds = ServiceAccountCredentials.from_service_account_file(
+    "/etc/secrets/google_creds.json", scope
+)
 sheets_service = build("sheets", "v4", credentials=creds)
 sheet = sheets_service.spreadsheets()
 
