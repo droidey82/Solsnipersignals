@@ -8,7 +8,7 @@ from datetime import datetime
 from oauth2client.service_account import ServiceAccountCredentials
 import gspread
 from dotenv import load_dotenv
-import telegram
+from telegram import Bot
 
 load_dotenv()
 
@@ -19,7 +19,7 @@ def send_telegram_alert(msg):
         TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
         if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
             raise Exception("TELEGRAM_TOKEN or TELEGRAM_CHAT_ID not set")
-        bot = telegram.Bot(token=TELEGRAM_TOKEN)
+        bot = Bot(token=TELEGRAM_TOKEN)
         response = bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=msg)
         print(f"📤 Telegram response: {response}")
     except Exception as e:
@@ -48,6 +48,12 @@ def scan_tokens():
     try:
         response = requests.get(url, headers=headers)
         print(f"📱 Dexscreener status: {response.status_code}")
+
+        if response.status_code == 429:
+            print("🚦 Rate limit hit. Sleeping 60s and retrying.")
+            time.sleep(60)
+            response = requests.get(url, headers=headers)
+
         if response.status_code != 200:
             raise Exception(f"Invalid DexScreener API response: {response.status_code} - {response.text[:100]}")
 
@@ -98,6 +104,7 @@ def scan_tokens():
 
 if __name__ == "__main__":
     send_telegram_alert("✅ Bot started and ready to snipe\nMonitoring Solana tokens every 5 minutes with LP lock/burn, top holders ≤5%, min $10k liquidity & volume")
+    time.sleep(10)  # Cooldown to avoid immediate rate limit
     while True:
         scan_tokens()
         print("⏳ Finished scan, sleeping 5m", flush=True)
