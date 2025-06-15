@@ -20,9 +20,9 @@ bot = telegram.Bot(token=TELEGRAM_TOKEN)
 def send_telegram_alert(msg):
     try:
         response = bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=msg)
-        print(f"ðŸ“¤ Telegram response: {response}")
+        print(f"📤 Telegram response: {response}")
     except Exception as e:
-        print(f"âŒ Telegram error: {e}")
+        print(f"❌ Telegram error: {e}")
 
 def log_to_google_sheets(row):
     try:
@@ -33,10 +33,10 @@ def log_to_google_sheets(row):
         sheet = client.open("Sol Sniper Logs").sheet1
         sheet.append_row(row)
     except Exception as e:
-        print(f"âŒ Google Sheets error: {e}")
+        print(f"❌ Google Sheets error: {e}")
 
 def scan_tokens():
-    print(f"\nðŸ§‘â€ðŸš€ {datetime.utcnow()} - Scanning Solana tokens...", flush=True)
+    print(f"\n👨‍🚀 {datetime.utcnow()} - Scanning Solana tokens...", flush=True)
     url = "https://api.dexscreener.io/latest/dex/pairs/solana"
     try:
         response = requests.get(url)
@@ -46,7 +46,7 @@ def scan_tokens():
         data = response.json()
         pairs = data.get("pairs", [])
         if not pairs:
-            print("ðŸ”´ No valid pairs data found.")
+            print("🔴 No valid pairs data found.")
             return
 
         filtered = []
@@ -56,7 +56,7 @@ def scan_tokens():
                 liquidity = float(pair.get("liquidity", {}).get("usd", 0))
                 holders_ok = all(float(h.get("share", 0)) <= 5.0 for h in pair.get("holders", []))
                 if liquidity >= 10000 and holders_ok and pair.get("liquidity", {}).get("locked", True):
-                    msg = f"ðŸ”¥ {base_token['name']} ({base_token['symbol']})\nLiquidity: ${liquidity:,.0f}\nURL: {pair['url']}"
+                    msg = f"🔥 {base_token['name']} ({base_token['symbol']})\nLiquidity: ${liquidity:,.0f}\nURL: {pair['url']}"
                     send_telegram_alert(msg)
                     log_to_google_sheets([
                         datetime.utcnow().isoformat(),
@@ -68,13 +68,13 @@ def scan_tokens():
                     filtered.append(msg)
             except Exception as e:
                 print(f"Error parsing pair: {e}", flush=True)
-        print(f"âœ… Scan complete. {len(filtered)} tokens passed filters.", flush=True)
+        print(f"✅ Scan complete. {len(filtered)} tokens passed filters.", flush=True)
     except Exception as e:
-        print(f"ðŸš¨ Error fetching or scanning DexScreener data: {e}")
+        print(f"🚨 Error fetching or scanning DexScreener data: {e}")
 
 if __name__ == "__main__":
-    send_telegram_alert("âœ… Bot started and ready to snipe\nMonitoring Solana tokens every 5 minutes with LP lock, top holders â‰¤5%, and min $10k liquidity")
+    send_telegram_alert("✅ Bot started and ready to snipe\nMonitoring Solana tokens every 5 minutes with LP lock, top holders ≤5%, and min $10k liquidity")
     while True:
         scan_tokens()
-        print("â³ Finished scan, sleeping 5m", flush=True)
+        print("⏳ Finished scan, sleeping 5m", flush=True)
         time.sleep(300)
