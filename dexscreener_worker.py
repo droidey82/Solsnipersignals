@@ -4,7 +4,6 @@ import json
 import time
 from datetime import datetime, timezone
 from google.oauth2.service_account import Credentials
-from googleapiclient.discovery import build
 from dotenv import load_dotenv
 
 load_dotenv()
