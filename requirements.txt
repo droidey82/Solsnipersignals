@@ -1,5 +1,5 @@
 python-telegram-bot==13.15
-gspread
 requests
-python-dotenv
-oauth2client
+gspread==5.12.0
+oauth2client==4.1.3
+python-dotenv==1.0.1
