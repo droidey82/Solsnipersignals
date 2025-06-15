@@ -42,15 +42,17 @@ def scan_tokens():
     print(f"\n🙍‍♂️ {datetime.utcnow()} - Scanning Solana tokens...", flush=True)
     url = "https://api.dexscreener.com/latest/dex/pairs"
     headers = {
-        "User-Agent": "Mozilla/5.0",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0.0.0 Safari/537.36",
         "Accept": "application/json"
     }
 
-    # Retry on 429s
     max_retries = 3
     for attempt in range(max_retries):
         response = requests.get(url, headers=headers)
         print(f"📱 DexScreener status: {response.status_code}")
+
+        print("🔎 Content-Type:", response.headers.get("Content-Type"))
+        print("🔎 Response preview:", response.text[:300])
 
         if response.status_code == 200:
             break
@@ -63,9 +65,8 @@ def scan_tokens():
         raise Exception("DexScreener 429 persisted after retries.")
 
     if "application/json" not in response.headers.get("Content-Type", ""):
-        print("⚠️ Unexpected content:")
-        print(response.text[:300])
-        raise Exception("DexScreener did not return JSON. URL may be broken or changed.")
+        print("⚠️ DexScreener did not return JSON.")
+        raise Exception("Invalid content type — expected JSON.")
 
     data = response.json()
     pairs = data.get("pairs", [])
