@@ -1,4 +1,5 @@
 import sys
+print("Using Python version:", sys.version)
 import os
 import requests
 import json
@@ -9,23 +10,22 @@ import gspread
 from dotenv import load_dotenv
 from telegram import Bot
 
-print("✅ Starting SolSniper worker")
 load_dotenv()
 
-# --- Telegram ---
+# --- Send Telegram Alert ---
 def send_telegram_alert(msg):
     try:
-        token = os.getenv("TELEGRAM_TOKEN")
-        chat_id = os.getenv("TELEGRAM_CHAT_ID")
-        if not token or not chat_id:
-            raise Exception("TELEGRAM_TOKEN or TELEGRAM_CHAT_ID missing")
-        bot = Bot(token=token)
-        response = bot.send_message(chat_id=chat_id, text=msg).to_dict()
-        print("📤 Telegram alert sent.")
+        TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+        TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+        if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
+            raise Exception("TELEGRAM_TOKEN or TELEGRAM_CHAT_ID not set")
+        bot = Bot(token=TELEGRAM_TOKEN)
+        response = bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=msg)
+        print(f"\U0001F4E4 Telegram response: {response}")
     except Exception as e:
-        print(f"❌ Telegram error: {e}")
+        print(f"\u274C Telegram error: {e}")
 
-# --- Google Sheets logging ---
+# --- Log to Google Sheets ---
 def log_to_google_sheets(row):
     try:
         scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
@@ -35,82 +35,94 @@ def log_to_google_sheets(row):
         sheet = client.open("Sol Sniper Logs").sheet1
         sheet.append_row(row)
     except Exception as e:
-        print(f"❌ Google Sheets error: {e}")
+        print(f"\u274C Google Sheets error: {e}")
 
-# --- DexScreener scan ---
+# --- Scan DexScreener for Solana tokens ---
 def scan_tokens():
-    print(f"\n🧑‍🚀 {datetime.utcnow()} - Scanning Solana tokens...")
+    print(f"\n\U0001F9D1\u200D\U0001F4BB {datetime.utcnow()} - Scanning Solana tokens...", flush=True)
     url = "https://api.dexscreener.io/latest/dex/pairs?chainId=solana"
     headers = {
-        "User-Agent": "Mozilla/5.0",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
         "Accept": "application/json"
     }
 
-    for attempt in range(3):
+    max_retries = 3
+    for attempt in range(max_retries):
         response = requests.get(url, headers=headers)
-        print(f"📡 Status: {response.status_code}")
-        print(f"🧾 Content-Type: {response.headers.get('Content-Type')}")
-        if response.status_code == 200 and "application/json" in response.headers.get("Content-Type", ""):
+        print(f"\U0001F4F1 Status: {response.status_code}")
+
+        print("\U0001F50D Content-Type:", response.headers.get("Content-Type"))
+        print("\U0001F50E Response preview:", response.text[:100])
+
+        if response.status_code == 200:
             break
         elif response.status_code == 429:
-            print(f"⚠️ Rate limit hit (attempt {attempt+1}/3) — sleeping 60s")
+            print(f"⚠️ Rate limit hit (attempt {attempt + 1}/{max_retries}) — sleeping 60 sec")
             time.sleep(60)
         else:
-            print("❌ Unexpected response:", response.status_code)
-            print("🔎 Preview:", response.text[:300])
-            if attempt == 2:
-                print("❌ DexScreener still failing after retries.")
-                return
+            print(f"\u274C Unexpected response: {response.status_code}")
+            time.sleep(3)
     else:
+        print("❌ DexScreener still failing after retries.")
         return
 
-    try:
-        data = response.json()
-    except Exception as e:
-        print("❌ Failed to parse JSON:", e)
+    if "application/json" not in response.headers.get("Content-Type", ""):
+        print("⚠️ DexScreener did not return JSON.")
         return
 
+    data = response.json()
     pairs = data.get("pairs", [])
     if not pairs:
-        print("🔴 No pairs returned.")
+        print("🔴 No valid pairs data found.")
         return
 
-    matches = []
+    filtered = []
     for pair in pairs:
         if pair.get("chainId") != "solana":
             continue
         try:
-            base = pair.get("baseToken", {})
+            base_token = pair["baseToken"]
             liquidity = float(pair.get("liquidity", {}).get("usd", 0))
             volume = float(pair.get("volume", {}).get("h24", 0))
-            locked = pair.get("liquidity", {}).get("locked", False)
-            burned = pair.get("liquidity", {}).get("burned", False)
-            holders_ok = all(h.get("share", 0) <= 5.0 for h in pair.get("holders", []))
+            is_lp_locked = pair.get("liquidity", {}).get("locked", False)
+            is_lp_burned = pair.get("liquidity", {}).get("burned", False)
+            holders_ok = all(float(h.get("share", 0)) <= 5.0 for h in pair.get("holders", []))
 
-            if liquidity >= 10000 and volume >= 10000 and holders_ok and (locked or burned):
+            if liquidity >= 10000 and volume >= 10000 and holders_ok and (is_lp_locked or is_lp_burned):
                 msg = (
-                    f"🔥 {base.get('name')} ({base.get('symbol')})\n"
+                    f"\U0001F525 {base_token['name']} ({base_token['symbol']})\n"
                     f"Liquidity: ${liquidity:,.0f}\n"
                     f"Volume (24h): ${volume:,.0f}\n"
-                    f"LP Locked: {locked}\nLP Burned: {burned}\n"
-                    f"URL: {pair.get('url')}"
+                    f"LP Locked: {is_lp_locked}\nLP Burned: {is_lp_burned}\n"
+                    f"URL: {pair['url']}"
                 )
                 send_telegram_alert(msg)
                 log_to_google_sheets([
                     datetime.utcnow().isoformat(),
-                    base.get('name'), base.get('symbol'),
-                    liquidity, volume, locked, burned,
-                    pair.get('url')
+                    base_token['name'],
+                    base_token['symbol'],
+                    liquidity,
+                    volume,
+                    is_lp_locked,
+                    is_lp_burned,
+                    pair['url']
                 ])
-                matches.append(msg)
+                filtered.append(msg)
         except Exception as e:
-            print(f"⚠️ Pair parsing error: {e}")
-    print(f"✅ Scan done. {len(matches)} tokens matched.")
+            print(f"Error parsing pair: {e}", flush=True)
 
-# --- Run loop ---
+    print(f"✅ Scan complete. {len(filtered)} tokens passed filters.", flush=True)
+
+# --- Main loop ---
 if __name__ == "__main__":
-    send_telegram_alert("✅ Bot started. Scanning Solana tokens every 5 minutes.\nFilters: LP locked/burned, holders ≤5%, $10k+ liquidity & volume")
-    while True:
-        scan_tokens()
-        print("⏳ Sleeping 5 min...")
-        time.sleep(300)
+    try:
+        print("\n⏳ Starting DexScreener Worker...")
+        send_telegram_alert("✅ Bot started and ready to snipe\nMonitoring Solana tokens every 5 min with filters.")
+        time.sleep(10)
+        while True:
+            scan_tokens()
+            print("\u23F3 Sleeping 5 min...")
+            time.sleep(300)
+    except Exception as e:
+        print(f"❌ Fatal error: {e}", flush=True)
+        send_telegram_alert(f"❌ Dex bot crashed: {e}")
