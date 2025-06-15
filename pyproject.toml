@@ -1,0 +1,19 @@
+[tool.poetry]
+name = "solsnipersignals"
+version = "0.1.0"
+description = ""
+authors = ["you@example.com"]
+packages = [{ include = "dexscreener_worker" }]
+
+[tool.poetry.dependencies]
+python = ">=3.10,<3.11"
+Flask = "2.2.5"
+requests = "2.31.0"
+gspread = "5.11.3"
+oauth2client = "4.1.3"
+python-dotenv = "*"
+python-telegram-bot = "13.15"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
