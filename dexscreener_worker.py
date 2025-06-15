@@ -1,4 +1,5 @@
-
+import sys
+print("Using Python version:", sys.version)
 import os
 import requests
 import json
