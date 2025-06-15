@@ -40,7 +40,7 @@ def log_to_google_sheets(row):
 # --- Scan DexScreener for Solana tokens ---
 def scan_tokens():
     print(f"\n🙍‍♂️ {datetime.utcnow()} - Scanning Solana tokens...", flush=True)
-    url = "https://api.dexscreener.io/latest/dex/pairs"
+    url = "https://api.dexscreener.com/latest/dex/pairs"
     headers = {
         "User-Agent": "Mozilla/5.0",
         "Accept": "application/json"
