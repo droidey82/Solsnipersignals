@@ -12,13 +12,13 @@ import telegram
 
 load_dotenv()
 
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-
-bot = telegram.Bot(token=TELEGRAM_TOKEN)
-
 def send_telegram_alert(msg):
     try:
+        TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+        TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+        if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
+            raise Exception("TELEGRAM_TOKEN or TELEGRAM_CHAT_ID not set")
+        bot = telegram.Bot(token=TELEGRAM_TOKEN)
         response = bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=msg)
         print(f"📤 Telegram response: {response}")
     except Exception as e:
