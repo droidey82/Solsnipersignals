@@ -12,18 +12,20 @@ from telegram import Bot
 
 load_dotenv()
 
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+BIRDEYE_API_KEY = os.getenv("BIRDEYE_API_KEY")
+
 # --- Send Telegram Alert ---
 def send_telegram_alert(msg):
     try:
-        TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-        TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
         if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
             raise Exception("TELEGRAM_TOKEN or TELEGRAM_CHAT_ID not set")
         bot = Bot(token=TELEGRAM_TOKEN)
         response = bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=msg)
-        print(f"\U0001F4E4 Telegram response: {response}")
+        print(f"\U0001f4e4 Telegram response: {response}")
     except Exception as e:
-        print(f"\u274C Telegram error: {e}")
+        print(f"\u274c Telegram error: {e}")
 
 # --- Log to Google Sheets ---
 def log_to_google_sheets(row):
@@ -35,94 +37,61 @@ def log_to_google_sheets(row):
         sheet = client.open("Sol Sniper Logs").sheet1
         sheet.append_row(row)
     except Exception as e:
-        print(f"\u274C Google Sheets error: {e}")
+        print(f"\u274c Google Sheets error: {e}")
 
-# --- Scan DexScreener for Solana tokens ---
+# --- Scan Birdeye for Solana tokens ---
 def scan_tokens():
-    print(f"\n\U0001F9D1\u200D\U0001F4BB {datetime.utcnow()} - Scanning Solana tokens...", flush=True)
-    url = "https://api.dexscreener.io/latest/dex/pairs?chainId=solana"
+    print(f"\n\U0001f9cd‍♂️ {datetime.utcnow()} - Scanning Solana tokens...", flush=True)
+    url = "https://public-api.birdeye.so/public/tokenlist?sort_by=volume_h24_usd&sort_type=desc&limit=50&offset=0&chain=solana"
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-        "Accept": "application/json"
+        "X-API-KEY": BIRDEYE_API_KEY,
+        "accept": "application/json"
     }
 
-    max_retries = 3
-    for attempt in range(max_retries):
-        response = requests.get(url, headers=headers)
-        print(f"\U0001F4F1 Status: {response.status_code}")
-
-        print("\U0001F50D Content-Type:", response.headers.get("Content-Type"))
-        print("\U0001F50E Response preview:", response.text[:100])
-
-        if response.status_code == 200:
-            break
-        elif response.status_code == 429:
-            print(f"⚠️ Rate limit hit (attempt {attempt + 1}/{max_retries}) — sleeping 60 sec")
-            time.sleep(60)
-        else:
-            print(f"\u274C Unexpected response: {response.status_code}")
-            time.sleep(3)
-    else:
-        print("❌ DexScreener still failing after retries.")
-        return
-
-    if "application/json" not in response.headers.get("Content-Type", ""):
-        print("⚠️ DexScreener did not return JSON.")
-        return
+    response = requests.get(url, headers=headers)
+    print(f"\U0001f4f1 Birdeye status: {response.status_code}")
+    if response.status_code != 200:
+        raise Exception(f"Invalid Birdeye API response: {response.status_code} - {response.text[:100]}")
 
     data = response.json()
-    pairs = data.get("pairs", [])
-    if not pairs:
-        print("🔴 No valid pairs data found.")
+    tokens = data.get("data", [])
+    if not tokens:
+        print("\U0001f534 No tokens returned.")
         return
 
-    filtered = []
-    for pair in pairs:
-        if pair.get("chainId") != "solana":
-            continue
+    for token in tokens:
         try:
-            base_token = pair["baseToken"]
-            liquidity = float(pair.get("liquidity", {}).get("usd", 0))
-            volume = float(pair.get("volume", {}).get("h24", 0))
-            is_lp_locked = pair.get("liquidity", {}).get("locked", False)
-            is_lp_burned = pair.get("liquidity", {}).get("burned", False)
-            holders_ok = all(float(h.get("share", 0)) <= 5.0 for h in pair.get("holders", []))
+            name = token.get("name")
+            symbol = token.get("symbol")
+            liquidity = float(token.get("liquidity", {}).get("usd", 0))
+            volume = float(token.get("volume_h24", 0))
 
-            if liquidity >= 10000 and volume >= 10000 and holders_ok and (is_lp_locked or is_lp_burned):
+            if liquidity >= 10000 and volume >= 10000:
                 msg = (
-                    f"\U0001F525 {base_token['name']} ({base_token['symbol']})\n"
+                    f"\U0001f525 {name} ({symbol})\n"
                     f"Liquidity: ${liquidity:,.0f}\n"
                     f"Volume (24h): ${volume:,.0f}\n"
-                    f"LP Locked: {is_lp_locked}\nLP Burned: {is_lp_burned}\n"
-                    f"URL: {pair['url']}"
+                    f"Birdeye: https://birdeye.so/token/{token['address']}?chain=solana"
                 )
                 send_telegram_alert(msg)
                 log_to_google_sheets([
                     datetime.utcnow().isoformat(),
-                    base_token['name'],
-                    base_token['symbol'],
+                    name,
+                    symbol,
                     liquidity,
                     volume,
-                    is_lp_locked,
-                    is_lp_burned,
-                    pair['url']
+                    f"https://birdeye.so/token/{token['address']}?chain=solana"
                 ])
-                filtered.append(msg)
         except Exception as e:
-            print(f"Error parsing pair: {e}", flush=True)
+            print(f"Error processing token: {e}", flush=True)
 
-    print(f"✅ Scan complete. {len(filtered)} tokens passed filters.", flush=True)
+    print("\u2705 Scan complete.\n", flush=True)
 
 # --- Main loop ---
 if __name__ == "__main__":
-    try:
-        print("\n⏳ Starting DexScreener Worker...")
-        send_telegram_alert("✅ Bot started and ready to snipe\nMonitoring Solana tokens every 5 min with filters.")
-        time.sleep(10)
-        while True:
-            scan_tokens()
-            print("\u23F3 Sleeping 5 min...")
-            time.sleep(300)
-    except Exception as e:
-        print(f"❌ Fatal error: {e}", flush=True)
-        send_telegram_alert(f"❌ Dex bot crashed: {e}")
+    send_telegram_alert("\u2705 Birdeye Bot Started - Monitoring Solana tokens with $10k+ liquidity & volume")
+    time.sleep(10)
+    while True:
+        scan_tokens()
+        print("\u23f3 Sleeping for 5 minutes...\n", flush=True)
+        time.sleep(300)
