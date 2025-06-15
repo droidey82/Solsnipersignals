@@ -3,7 +3,8 @@ import requests
 import json
 import time
 from datetime import datetime, timezone
-from google.oauth2.service_account import Credentials
+from oauth2client.service_account import ServiceAccountCredentials
+
 from dotenv import load_dotenv
 
 load_dotenv()
