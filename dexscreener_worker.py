@@ -41,7 +41,7 @@ def log_to_google_sheets(data_row):
         print(f"âš ï¸ Google Sheets logging error: {e}", flush=True)
 
 def fetch_solana_pairs():
-    url = "https://api.dexscreener.com/latest/dex/pairs?chainId=solana"
+    url = "https://api.dexscreener.io/latest/dex/pairs/solana"
     try:
         response = requests.get(url, timeout=10)
         response.raise_for_status()
