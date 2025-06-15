@@ -1,7 +1,7 @@
 import sys
-print("Using Python version:", sys.version)
 import os
 import requests
+import json
 import time
 from datetime import datetime
 from oauth2client.service_account import ServiceAccountCredentials
@@ -9,6 +9,7 @@ import gspread
 from dotenv import load_dotenv
 from telegram import Bot
 
+print("Using Python version:", sys.version)
 load_dotenv()
 
 # --- Send Telegram Alert ---
@@ -20,7 +21,7 @@ def send_telegram_alert(msg):
             raise Exception("TELEGRAM_TOKEN or TELEGRAM_CHAT_ID not set")
         bot = Bot(token=TELEGRAM_TOKEN)
         response = bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=msg)
-        print("📤 Telegram alert sent.")
+        print(f"📤 Telegram response: {response}")
     except Exception as e:
         print(f"❌ Telegram error: {e}")
 
@@ -38,8 +39,8 @@ def log_to_google_sheets(row):
 
 # --- Scan DexScreener for Solana tokens ---
 def scan_tokens():
-    print(f"\n🔍 {datetime.utcnow()} - Scanning Solana tokens...", flush=True)
-    url = "https://api.dexscreener.io/latest/dex/pairs/solana"
+    print(f"\n🙍‍♂️ {datetime.utcnow()} - Scanning Solana tokens...", flush=True)
+    url = "https://api.dexscreener.io/latest/dex/pairs?chainId=solana"
     headers = {
         "User-Agent": "Mozilla/5.0",
         "Accept": "application/json"
@@ -48,32 +49,37 @@ def scan_tokens():
     max_retries = 3
     for attempt in range(max_retries):
         response = requests.get(url, headers=headers)
-        print(f"📡 Status: {response.status_code}")
+        print(f"📡 DexScreener status: {response.status_code}")
+        print("🔎 Content-Type:", response.headers.get("Content-Type"))
+        print("🔎 Response preview:", response.text[:120])
 
         if response.status_code == 200:
             break
         elif response.status_code == 429:
-            print(f"⏳ Rate limited (attempt {attempt+1}/{max_retries}). Sleeping 60s...")
+            print(f"⚠️ Rate limit hit (attempt {attempt+1}/{max_retries}) — sleeping 60s...")
             time.sleep(60)
         else:
-            print("🛑 DexScreener error: Unexpected response:", response.status_code)
-            print("🔎 Content-Type:", response.headers.get("Content-Type"))
-            print("🔎 Response preview:", response.text[:300])
+            print(f"🚨 DexScreener error: Unexpected response: {response.status_code}")
+            time.sleep(10)
             return
-    else:
-        print("🚨 DexScreener 429 persisted after retries.")
+
+    if "application/json" not in response.headers.get("Content-Type", ""):
+        print("❌ Invalid content type, expected JSON.")
         return
 
     data = response.json()
     pairs = data.get("pairs", [])
     if not pairs:
-        print("🔴 No valid token pairs found.")
+        print("🔴 No token pairs found.")
         return
 
-    alerts_sent = 0
+    filtered = []
     for pair in pairs:
         try:
-            base_token = pair.get("baseToken", {})
+            base_token = pair["baseToken"]
+            if pair.get("chainId") != "solana":
+                continue
+
             liquidity = float(pair.get("liquidity", {}).get("usd", 0))
             volume = float(pair.get("volume", {}).get("h24", 0))
             is_lp_locked = pair.get("liquidity", {}).get("locked", False)
@@ -82,34 +88,34 @@ def scan_tokens():
 
             if liquidity >= 10000 and volume >= 10000 and holders_ok and (is_lp_locked or is_lp_burned):
                 msg = (
-                    f"🔥 {base_token.get('name')} ({base_token.get('symbol')})\n"
+                    f"🔥 {base_token['name']} ({base_token['symbol']})\n"
                     f"Liquidity: ${liquidity:,.0f}\n"
                     f"Volume (24h): ${volume:,.0f}\n"
                     f"LP Locked: {is_lp_locked}\nLP Burned: {is_lp_burned}\n"
-                    f"URL: {pair.get('url')}"
+                    f"URL: {pair['url']}"
                 )
                 send_telegram_alert(msg)
                 log_to_google_sheets([
                     datetime.utcnow().isoformat(),
-                    base_token.get("name"),
-                    base_token.get("symbol"),
+                    base_token['name'],
+                    base_token['symbol'],
                     liquidity,
                     volume,
                     is_lp_locked,
                     is_lp_burned,
-                    pair.get("url")
+                    pair['url']
                 ])
-                alerts_sent += 1
+                filtered.append(msg)
         except Exception as e:
-            print(f"⚠️ Error parsing token: {e}")
+            print(f"⚠️ Error processing pair: {e}")
 
-    print(f"✅ Scan complete. {alerts_sent} alerts sent.\n")
+    print(f"✅ Scan complete. {len(filtered)} token(s) passed filters.")
 
-# --- Main Loop ---
+# --- Main loop ---
 if __name__ == "__main__":
-    send_telegram_alert("✅ Bot started. Monitoring Solana tokens with LP lock/burn, holders ≤5%, $10k+ liquidity & volume.")
-    time.sleep(10)
+    send_telegram_alert("✅ Bot started and ready to snipe!\nScanning Solana every 5 min with LP lock/burn, top holders ≤5%, $10k+ liquidity & volume.")
+    time.sleep(5)
     while True:
         scan_tokens()
-        print("⏳ Sleeping 5 min...\n", flush=True)
+        print("⏳ Sleeping 5 min...")
         time.sleep(300)
