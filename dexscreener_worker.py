@@ -37,9 +37,14 @@ def log_to_google_sheets(row):
 
 def scan_tokens():
     print(f"\n👨‍🚀 {datetime.utcnow()} - Scanning Solana tokens...", flush=True)
-    url = "https://api.dexscreener.io/latest/dex/pairs/solana"
+    url = "https://api.dexscreener.com/latest/dex/pairs/solana"
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "application/json"
+    }
     try:
-        response = requests.get(url)
+        response = requests.get(url, headers=headers)
+        print(f"📡 Dexscreener status: {response.status_code}")
         if response.status_code != 200:
             raise Exception(f"Invalid DexScreener API response: {response.status_code} - {response.text[:100]}")
 
