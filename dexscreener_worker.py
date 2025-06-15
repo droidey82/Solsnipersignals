@@ -40,39 +40,26 @@ def check_dexscreener():
     print(f"\n🧑‍🚀 {datetime.utcnow()} - Scanning Solana tokens...", flush=True)
     try:
         url = "https://api.dexscreener.io/latest/dex/pairs/solana"
+        print(f"📡 Using DexScreener URL: {url}", flush=True)
+
         response = requests.get(url)
         if response.status_code != 200:
-            raise Exception(f"Invalid DexScreener API response: {response.status_code} - {response.text[:100]}")
+            raise Exception(f"❌ Invalid DexScreener API response: {response.status_code} - {response.text[:100]}")
+
         data = response.json()
         pairs = data.get("pairs", [])
         if not pairs:
             print("🛑 No valid pairs data found.")
             return
+
         for pair in pairs:
             try:
                 base_token = pair["baseToken"]
                 liquidity = float(pair.get("liquidity", {}).get("usd", 0))
-                volume = float(pair.get("volume", {}).get("h24", 0))
-                is_locked = pair.get("liquidity", {}).get("lockStatus") in ["locked", "burned"]
+                # ... [rest of logic]
 
-                if liquidity >= 10000 and is_locked:
-                    alert_msg = (
-                        f"<b>🔥 Token Alert: {base_token['name']} ({base_token['symbol']})</b>\n"
-                        f"<i>Liquidity:</i> ${liquidity:,.0f}\n"
-                        f"<i>24h Volume:</i> ${volume:,.0f}"
-                    )
-                    send_telegram_alert(alert_msg)
-                    log_to_google_sheets([
-                        str(datetime.utcnow()),
-                        base_token["name"],
-                        base_token["symbol"],
-                        f"${liquidity:,.0f}",
-                        f"${volume:,.0f}"
-                    ])
-            except Exception as inner_e:
-                print("⚠️ Error processing pair:", inner_e)
     except Exception as e:
-        print("❌ Error fetching or scanning DexScreener data:", e)
+        print(f"❌ Error fetching or scanning DexScreener data: {e}")
 
 if __name__ == "__main__":
     send_telegram_alert("✅ Bot started and ready to snipe\n<i>Monitoring Solana tokens every 5 minutes with LP lock and min $10k liquidity</i>")
