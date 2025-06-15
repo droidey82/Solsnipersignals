@@ -40,7 +40,9 @@ def log_to_google_sheets(row):
 # --- Scan DexScreener for Solana tokens ---
 def scan_tokens():
     print(f"\n🙍‍♂️ {datetime.utcnow()} - Scanning Solana tokens...", flush=True)
-    url = "https://api.dexscreener.com/latest/dex/pairs?chainId=solana"
+    url = "https://api.dexscreener.com/latest/dex/pairs/solana"
+    print(f"✅ Using hardcoded URL: {url}")
+    
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0.0.0 Safari/537.36",
         "Accept": "application/json"
@@ -50,7 +52,6 @@ def scan_tokens():
     for attempt in range(max_retries):
         response = requests.get(url, headers=headers)
         print(f"📱 DexScreener status: {response.status_code}")
-
         print("🔎 Content-Type:", response.headers.get("Content-Type"))
         print("🔎 Response preview:", response.text[:300])
 
@@ -65,7 +66,6 @@ def scan_tokens():
         raise Exception("DexScreener 429 persisted after retries.")
 
     if "application/json" not in response.headers.get("Content-Type", ""):
-        print("⚠️ DexScreener did not return JSON.")
         raise Exception("Invalid content type — expected JSON.")
 
     data = response.json()
