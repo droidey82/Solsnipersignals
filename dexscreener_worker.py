@@ -9,7 +9,6 @@ import gspread
 from dotenv import load_dotenv
 from telegram import Bot
 
-print("Using Python version:", sys.version)
 load_dotenv()
 
 # --- Send Telegram Alert ---
@@ -39,7 +38,7 @@ def log_to_google_sheets(row):
 
 # --- Scan DexScreener for Solana tokens ---
 def scan_tokens():
-    print(f"\n🙍‍♂️ {datetime.utcnow()} - Scanning Solana tokens...", flush=True)
+    print(f"\n👨‍💼 {datetime.utcnow()} - Scanning Solana tokens...", flush=True)
     url = "https://api.dexscreener.io/latest/dex/pairs?chainId=solana"
     headers = {
         "User-Agent": "Mozilla/5.0",
@@ -48,38 +47,43 @@ def scan_tokens():
 
     max_retries = 3
     for attempt in range(max_retries):
-        response = requests.get(url, headers=headers)
-        print(f"📡 DexScreener status: {response.status_code}")
-        print("🔎 Content-Type:", response.headers.get("Content-Type"))
-        print("🔎 Response preview:", response.text[:120])
+        try:
+            response = requests.get(url, headers=headers)
+            print(f"📱 Status: {response.status_code}")
+            print(f"🔍 Content-Type: {response.headers.get('Content-Type')}")
 
-        if response.status_code == 200:
-            break
-        elif response.status_code == 429:
-            print(f"⚠️ Rate limit hit (attempt {attempt+1}/{max_retries}) — sleeping 60s...")
-            time.sleep(60)
-        else:
-            print(f"🚨 DexScreener error: Unexpected response: {response.status_code}")
+            if response.status_code == 200 and 'application/json' in response.headers.get("Content-Type", ""):
+                break
+            elif response.status_code == 429:
+                print(f"⚠️ Rate limit hit (attempt {attempt + 1}/{max_retries}) - sleeping 60s...")
+                time.sleep(60)
+            else:
+                print(f"🛑 Unexpected response: {response.status_code}\nPreview: {response.text[:150]}")
+                time.sleep(10)
+        except Exception as e:
+            print(f"🚨 Request error: {e}")
             time.sleep(10)
-            return
-
-    if "application/json" not in response.headers.get("Content-Type", ""):
-        print("❌ Invalid content type, expected JSON.")
+    else:
+        print("❌ DexScreener still failing after retries.")
         return
 
-    data = response.json()
+    try:
+        data = response.json()
+    except Exception as e:
+        print(f"❌ JSON decode error: {e}")
+        return
+
     pairs = data.get("pairs", [])
     if not pairs:
-        print("🔴 No token pairs found.")
+        print("🔴 No valid pairs data found.")
         return
 
     filtered = []
     for pair in pairs:
+        if pair.get("chainId") != "solana":
+            continue
         try:
             base_token = pair["baseToken"]
-            if pair.get("chainId") != "solana":
-                continue
-
             liquidity = float(pair.get("liquidity", {}).get("usd", 0))
             volume = float(pair.get("volume", {}).get("h24", 0))
             is_lp_locked = pair.get("liquidity", {}).get("locked", False)
@@ -107,15 +111,14 @@ def scan_tokens():
                 ])
                 filtered.append(msg)
         except Exception as e:
-            print(f"⚠️ Error processing pair: {e}")
+            print(f"Error parsing pair: {e}", flush=True)
 
-    print(f"✅ Scan complete. {len(filtered)} token(s) passed filters.")
+    print(f"✅ Scan complete. {len(filtered)} tokens passed filters.", flush=True)
 
 # --- Main loop ---
 if __name__ == "__main__":
-    send_telegram_alert("✅ Bot started and ready to snipe!\nScanning Solana every 5 min with LP lock/burn, top holders ≤5%, $10k+ liquidity & volume.")
-    time.sleep(5)
+    send_telegram_alert("✅ Bot started. Monitoring Solana tokens every 5 min with LP lock/burn, top holders ≤5%, min $10k liquidity & volume")
     while True:
         scan_tokens()
-        print("⏳ Sleeping 5 min...")
+        print("⏳ Sleeping 5 min...", flush=True)
         time.sleep(300)
