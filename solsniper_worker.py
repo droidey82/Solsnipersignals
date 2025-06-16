@@ -1,14 +1,12 @@
 import os
-import json
-import asyncio
-import websockets
-import telegram
+from telegram import Bot
 
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-API_KEY = os.getenv("SOLANASTREAMING_API_KEY")
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 
-bot = telegram.Bot(token=TELEGRAM_TOKEN)
+if TELEGRAM_TOKEN is None:
+    raise ValueError("TELEGRAM_TOKEN environment variable not set")
+
+bot = Bot(token=TELEGRAM_TOKEN)
 
 SUBSCRIBE_MESSAGE = json.dumps({
     "id": 1,
