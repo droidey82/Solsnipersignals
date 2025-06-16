@@ -1,67 +1,70 @@
-import sys
-print("Using Python version:", sys.version)
-
-import os
-import requests
-import json
-import time
+import os, sys, time, json, asyncio, logging
 from datetime import datetime
+from oauth2client.service_account import ServiceAccountCredentials
+import gspread
 from dotenv import load_dotenv
 from telegram import Bot
+import websockets
 
 load_dotenv()
+logging.basicConfig(level=logging.INFO)
 
-# --- Send Telegram Alert ---
-def send_telegram_alert(msg):
-    try:
-        TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-        TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-        if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-            raise Exception("TELEGRAM_TOKEN or TELEGRAM_CHAT_ID not set")
-        bot = Bot(token=TELEGRAM_TOKEN)
-        response = bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=msg)
-        print(f"\U0001F4E4 Telegram alert sent.")
-    except Exception as e:
-        print(f"\u274C Telegram error: {e}")
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+SOLSTREAM_KEY = os.getenv("SOLSTREAM_API_KEY")
 
-# --- Scan Solana tokens from Birdeye ---
-def scan_tokens():
-    print(f"\n\U0001F9D1‍\U0001F4BB {datetime.utcnow()} - Scanning Solana tokens...")
-    url = "https://public-api.birdeye.so/public/tokenlist?chain=solana"
-    headers = {
-        "X-API-KEY": os.getenv("BIRDEYE_API_KEY"),
-        "accept": "application/json"
-    }
+if not SOLSTREAM_KEY or not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
+    logging.critical("❌ ENV vars missing!")
+    sys.exit(1)
 
-    try:
-        response = requests.get(url, headers=headers)
-        print(f"\U0001F4C3 Birdeye status: {response.status_code}")
+bot = Bot(token=TELEGRAM_TOKEN)
 
-        if response.status_code != 200:
-            raise Exception(f"Invalid Birdeye API response: {response.status_code} - {response.text[:100]}")
-
-        data = response.json()
-        tokens = data.get("data", [])
-
-        if not tokens:
-            print("\U0001F534 No tokens returned.")
-            return
-
-        print(f"\u2705 Retrieved {len(tokens)} tokens from Birdeye.")
-
-    except Exception as e:
-        print(f"\u274C Exception: {e}")
-
-# --- Main ---
-if __name__ == "__main__":
-    try:
-        print("\u2705 Script loaded and running.")
-        send_telegram_alert("✅ Bot started. Monitoring Solana tokens with $10k+ liquidity & volume")
-        time.sleep(10)
+async def subscribe_and_listen():
+    uri = "wss://api.solanastreaming.com/"
+    headers = {"X-API-KEY": SOLSTREAM_KEY}
+    async with websockets.connect(uri, extra_headers=headers) as ws:
+        await ws.send(json.dumps({"id":1,"method":"newPairSubscribe"}))
+        logging.info("✅ Subscribed to newPair events")
         while True:
-            print("\U0001F501 Beginning token scan loop")
-            scan_tokens()
-            print("⏳ Scan complete. Sleeping 5 min...")
-            time.sleep(300)
+            msg = await ws.recv()
+            data = json.loads(msg)
+            yield data
+
+def send(alert):
+    bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=alert)
+    logging.info("📤 Telegram alert sent")
+
+def log_sheet(row):
+    try:
+        creds = ServiceAccountCredentials.from_json_keyfile_name(
+            "/etc/secrets/GOOGLE_CREDS_JSON", 
+            ["https://spreadsheets.google.com/feeds","https://www.googleapis.com/auth/drive"])
+        sheet = gspread.authorize(creds).open("Sol Sniper Logs").sheet1
+        sheet.append_row(row)
     except Exception as e:
-        print(f"❌ CRASH: {e}")
+        logging.error("❌ Sheets error: %s", e)
+
+def build_alert(pair):
+    base = pair["baseToken"]["info"]
+    quote_added = float(pair["quoteTokenLiquidityAdded"])/1e9
+    base_added = float(pair["baseTokenLiquidityAdded"])/10**base["decimals"]
+    alert = (
+        f"🚀 New Pair Created!\n"
+        f"Name: {base['metadata']['name']} ({base['metadata']['symbol']})\n"
+        f"LIQ Added: {quote_added:,.2f} wSOL\n"
+        f"Pair Info URL: https://solanastreaming.com/pair/{pair['ammAccount']}"
+    )
+    return alert
+
+async def main():
+    logging.info("🛸 SolStreaming bot is starting...")
+    send("✅ SolStreaming bot started — listening for new pairs on Raydium")
+    async for data in subscribe_and_listen():
+        pair = data.get("pair")
+        if not pair: continue
+        alert = build_alert(pair)
+        send(alert)
+        log_sheet([datetime.utcnow().isoformat(), pair["baseToken"]["info"]["symbol"], pair["ammAccount"], data["slot"]])
+
+if __name__ == "__main__":
+    asyncio.run(main())
