@@ -11,33 +11,33 @@ from datetime import datetime
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 SOLANASTREAMING_API_KEY = os.getenv("SOLANASTREAMING_API_KEY")
-GOOGLE_CREDS = os.getenv("GOOGLE_CREDS")
 
-# Initialize Telegram bot
-bot = Bot(token=TELEGRAM_TOKEN)
+# Load Google credentials from secret file (for Render)
+with open("/etc/secrets/GOOGLE_CREDS.json", "r") as f:
+    creds_dict = json.load(f)
 
 # Setup Google Sheets logging
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-creds_dict = json.loads(GOOGLE_CREDS)
 creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
 client = gspread.authorize(creds)
 sheet = client.open("Sol Sniper Logs").sheet1
 
-# Filter parameters
-MIN_VOLUME = 10000  # $10k
-MIN_LIQUIDITY = 10000  # $10k
-MAX_HOLDER_PERCENT = 5
-MIN_MARKET_CAP = 100000  # $100k
+# Initialize Telegram bot
+bot = Bot(token=TELEGRAM_TOKEN)
 
-# WebSocket filter to prevent silent timeouts
+# Filter parameters
+MIN_VOLUME = 10000         # $10k
+MIN_LIQUIDITY = 10000      # $10k
+MAX_HOLDER_PERCENT = 5     # No single holder > 5%
+MIN_MARKET_CAP = 100000    # $100k
+
+# WebSocket subscription message
 SUBSCRIBE_MESSAGE = json.dumps({
     "id": 1,
     "method": "swapSubscribe",
     "params": {
         "include": {
-            "volumeUsd": {"gte": MIN_VOLUME},
-            "liquidityUsd": {"gte": MIN_LIQUIDITY},
-            "fdvUsd": {"gte": MIN_MARKET_CAP}
+            "baseTokenMint": []  # Empty = subscribe to all
         }
     }
 })
@@ -67,7 +67,7 @@ async def handle_stream():
     headers = {"X-API-KEY": SOLANASTREAMING_API_KEY}
 
     async with websockets.connect(url, extra_headers=headers) as ws:
-        await send_alert("🟢 SolSniper Bot has started and is now monitoring the Solana memecoin market.")
+        await send_alert("🟢 SolSniper Bot is now live and scanning the Solana memecoin market.")
         await ws.send(SUBSCRIBE_MESSAGE)
         print("Subscribed to SolanaStreaming WebSocket")
 
@@ -88,6 +88,8 @@ async def handle_stream():
                 holders = info.get("holders", 0)
                 market_cap = info.get("fdvUsd", 0)
 
+                if volume < MIN_VOLUME or liquidity < MIN_LIQUIDITY or market_cap < MIN_MARKET_CAP:
+                    continue
                 if holders == 0 or info.get("topHolderPercent", 100) > MAX_HOLDER_PERCENT:
                     continue
 
@@ -100,6 +102,7 @@ async def handle_stream():
                     f"FDV: ${market_cap:,.0f}\n"
                     f"Holders: {holders}"
                 )
+
                 await send_alert(message)
                 await log_to_sheet(token, price, volume, liquidity, holders, market_cap)
 
