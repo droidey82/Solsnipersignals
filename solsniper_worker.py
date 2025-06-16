@@ -12,7 +12,7 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 SOLANASTREAMING_API_KEY = os.getenv("SOLANASTREAMING_API_KEY")
 
-# Correct path to Render secret file
+# Path to Google Sheets credentials (Render secret mount)
 GOOGLE_CREDS_PATH = "/etc/secrets/GOOGLE_CREDS"
 
 # Setup Telegram bot
@@ -32,18 +32,18 @@ MIN_LIQUIDITY = 10000
 MAX_HOLDER_PERCENT = 5
 MIN_MARKET_CAP = 100000
 
-# Subscription message to receive all swaps
+# WebSocket subscription message
 SUBSCRIBE_MESSAGE = json.dumps({
     "id": 1,
     "method": "swapSubscribe",
     "params": {
         "include": {
-            "baseTokenMint": []  # All tokens
+            "baseTokenMint": []
         }
     }
 })
 
-async def send_alert(message: str):
+async def send_alert(message):
     try:
         await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
     except Exception as e:
@@ -72,7 +72,8 @@ async def handle_stream():
             print("✅ Connected to SolanaStreaming WebSocket.")
             await ws.send(SUBSCRIBE_MESSAGE)
 
-            first_message_sent = False
+            # Send startup alert ONCE after successful subscription
+            await send_alert("🟢 SolSniper Bot is live and monitoring swaps.")
 
             while True:
                 try:
@@ -91,18 +92,12 @@ async def handle_stream():
                     market_cap = info.get("fdvUsd", 0)
                     top_holder_percent = info.get("topHolderPercent", 100)
 
-                    # Skip if any condition fails
+                    # Apply filters
                     if volume < MIN_VOLUME or liquidity < MIN_LIQUIDITY or market_cap < MIN_MARKET_CAP:
                         continue
                     if holders == 0 or top_holder_percent > MAX_HOLDER_PERCENT:
                         continue
 
-                    # Send startup message once
-                    if not first_message_sent:
-                        await send_alert("🟢 SolSniper Bot is live and monitoring swaps.")
-                        first_message_sent = True
-
-                    # Alert and log
                     message = (
                         f"🚀 New Token Detected\n"
                         f"Name: {token}\n"
@@ -116,10 +111,11 @@ async def handle_stream():
                     await log_to_sheet(token, price, volume, liquidity, holders, market_cap)
 
                 except Exception as stream_err:
-                    print("Error during stream:", stream_err)
+                    print("Stream error:", stream_err)
                     await asyncio.sleep(5)
+
     except Exception as conn_err:
-        print("Failed to connect:", conn_err)
+        print("WebSocket connection error:", conn_err)
 
 if __name__ == '__main__':
     asyncio.run(handle_stream())
