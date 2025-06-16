@@ -1,5 +1,6 @@
 import os
 import json
+import asyncio
 from telegram import Bot
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
