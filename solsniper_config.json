@@ -1,0 +1,7 @@
+{
+    "min_volume_usd": 10000,
+    "min_liquidity_usd": 10000,
+    "max_holder_percentage": 5,
+    "lp_locked_or_burned": true,
+    "min_market_cap_usd": 100000
+}
