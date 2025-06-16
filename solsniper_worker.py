@@ -1,72 +1,71 @@
 import os
 import json
 import asyncio
-import websockets
 from telegram import Bot
+import websockets
 
-# === Environment Variables ===
+# Load environment variables
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-SOLANA_API_KEY = os.getenv("SOLANA_API_KEY")
+SOLANA_API_KEY = os.getenv("SOLANASTREAMING_API_KEY")
 
+# Validate environment variables
 if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID or not SOLANA_API_KEY:
     raise EnvironmentError("One or more required environment variables are missing.")
 
+# Initialize bot
 bot = Bot(token=TELEGRAM_TOKEN)
 
+# WebSocket subscription message (edit token list if needed)
 SUBSCRIBE_MESSAGE = json.dumps({
     "id": 1,
     "method": "swapSubscribe",
     "params": {
         "include": {
-            "baseTokenMint": []  # Empty to listen to all tokens
+            "baseTokenMint": []  # Optional: list token mints or leave empty for all
         }
     }
 })
 
+# Send Telegram alert
 async def send_alert(message):
     try:
         await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
     except Exception as e:
-        print("❌ Failed to send Telegram alert:", e)
+        print("❌ Telegram error:", e)
 
+# Main stream handler
 async def handle_stream():
     url = "wss://api.solanastreaming.com/"
     headers = {"X-API-KEY": SOLANA_API_KEY}
 
     try:
-        async with websockets.connect(
-            url,
-            extra_headers=headers,
-            ping_interval=20,
-            ping_timeout=20
-        ) as ws:
+        async with websockets.connect(url, extra_headers=headers) as ws:
             await ws.send(SUBSCRIBE_MESSAGE)
             print("✅ Subscribed to SolanaStreaming WebSocket")
-            await send_alert("🟢 Solana Sniper bot connected and listening for swaps...")
 
             while True:
                 try:
                     response = await ws.recv()
                     data = json.loads(response)
-                    print("Received:", data)
+                    print("📥 Received:", data)
 
-                    # === Swap Alert Logic ===
                     if data.get("method") == "swap":
-                        swap_data = data.get("params", {}).get("data", {})
-                        base = swap_data.get("baseTokenSymbol", "")
-                        quote = swap_data.get("quoteTokenSymbol", "")
-                        amount = swap_data.get("amountOut", "N/A")
-                        message = f"🚨 Swap Detected!\n{base} → {quote}\nAmount Out: {amount}"
+                        token_info = data.get("params", {}).get("data", {})
+                        base = token_info.get("baseTokenSymbol", "")
+                        quote = token_info.get("quoteTokenSymbol", "")
+                        amount = token_info.get("amountOut", 0)
+
+                        message = f"🚨 Swap Detected:\n{base} → {quote}\nAmount Out: {amount}"
                         await send_alert(message)
 
                 except Exception as e:
-                    print("⚠️ Error during WebSocket stream:", e)
+                    print("⚠️ Error in stream loop:", e)
                     await asyncio.sleep(5)
 
     except Exception as e:
-        print("❌ Failed to connect to WebSocket:", e)
-        await send_alert("❌ Failed to connect to SolanaStreaming WebSocket")
+        print("❌ Connection error:", e)
 
+# Entry point
 if __name__ == '__main__':
     asyncio.run(handle_stream())
