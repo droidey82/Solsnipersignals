@@ -13,7 +13,7 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 SOLANASTREAMING_API_KEY = os.getenv("SOLANASTREAMING_API_KEY")
 
 # Load Google credentials from mounted secret file
-with open("/etc/secrets/GOOGLE_CREDS.json") as f:
+with open("/etc/secrets/GOOGLE_CREDS.JSON") as f:
     creds_dict = json.load(f)
 
 # Setup Google Sheets
