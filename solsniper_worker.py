@@ -3,29 +3,58 @@ import json
 import asyncio
 import websockets
 from telegram import Bot
-from solsniper_config import TELEGRAM_TOKEN, TELEGRAM_CHAT_ID, SOLANASTREAMING_API_KEY, FILTER_MINT_ADDRESSES
+from decimal import Decimal
 
-if TELEGRAM_TOKEN is None or TELEGRAM_CHAT_ID is None:
-    raise ValueError("Telegram token and chat ID must be set in environment variables.")
+# Load environment variables
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+SOLANASTREAMING_API_KEY = os.getenv("SOLANASTREAMING_API_KEY")
+
+if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID or not SOLANASTREAMING_API_KEY:
+    raise EnvironmentError("Missing one or more environment variables")
 
 bot = Bot(token=TELEGRAM_TOKEN)
 
-# WebSocket subscribe message (filter by mint addresses if needed)
 SUBSCRIBE_MESSAGE = json.dumps({
     "id": 1,
     "method": "swapSubscribe",
     "params": {
         "include": {
-            "baseTokenMint": FILTER_MINT_ADDRESSES  # Can add mint addresses here to filter specific tokens
+            "baseTokenMint": []  # Subscribe to all tokens
         }
     }
 })
 
-async def send_alert(message):
+async def send_alert(message: str):
     try:
         await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
     except Exception as e:
-        print("Failed to send alert:", e)
+        print(f"Telegram error: {e}")
+
+
+def is_valid_token(data):
+    """Apply filtering logic to determine if token meets requirements."""
+    try:
+        info = data["params"]["data"]
+
+        volume = Decimal(info.get("volume24h", 0))
+        liquidity = Decimal(info.get("liquidity", 0))
+        market_cap = Decimal(info.get("fdv", 0))
+        holders = int(info.get("holders", 0))
+        lp_burned = info.get("lpLocked", False)
+        top_holder_percent = Decimal(info.get("topHolderPercent", 100))
+
+        return (
+            volume >= 10000 and
+            liquidity >= 10000 and
+            market_cap >= 100000 and
+            lp_burned and
+            top_holder_percent <= 5
+        )
+    except Exception as e:
+        print(f"Filter error: {e}")
+        return False
+
 
 async def handle_stream():
     url = "wss://api.solanastreaming.com/"
@@ -33,30 +62,34 @@ async def handle_stream():
 
     async with websockets.connect(url, extra_headers=headers) as ws:
         await ws.send(SUBSCRIBE_MESSAGE)
-        print("Subscribed to SolanaStreaming WebSocket")
+        print("✅ Subscribed to SolanaStreaming")
 
         while True:
             try:
                 response = await ws.recv()
                 data = json.loads(response)
 
-                # Basic logging
-                print("Received:", data)
+                if data.get("method") == "swap" and is_valid_token(data):
+                    token = data["params"]["data"]
+                    base = token.get("baseTokenSymbol")
+                    quote = token.get("quoteTokenSymbol")
+                    tx = token.get("txHash", "")
+                    volume = token.get("volume24h")
+                    liquidity = token.get("liquidity")
 
-                # Filter based on swap data and send alert
-                if data.get("method") == "swap":
-                    token_info = data.get("params", {}).get("data", {})
-                    base = token_info.get("baseTokenSymbol", "")
-                    quote = token_info.get("quoteTokenSymbol", "")
-                    amount = token_info.get("amountOut", 0)
-
-                    message = f"Swap Detected:\n{base} → {quote}\nAmount Out: {amount}"
+                    message = (
+                        f"🚨 New Trade Alert 🚨\n"
+                        f"Token: {base}/{quote}\n"
+                        f"24h Volume: ${volume}\n"
+                        f"Liquidity: ${liquidity}\n"
+                        f"Tx: https://solscan.io/tx/{tx}"
+                    )
                     await send_alert(message)
 
             except Exception as e:
-                print("Error during stream:", e)
+                print(f"Stream error: {e}")
                 await asyncio.sleep(5)
 
+
 if __name__ == '__main__':
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(handle_stream())
+    asyncio.run(handle_stream())
