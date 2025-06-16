@@ -11,7 +11,7 @@ from datetime import datetime
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 SOLANASTREAMING_API_KEY = os.getenv("SOLANASTREAMING_API_KEY")
-GOOGLE_CREDS_PATH = "/etc/secrets/GOOGLE_CREDS.json"
+GOOGLE_CREDS_PATH = "/etc/secrets/GOOGLE_CREDS.JSON"
 
 # Initialize Telegram bot
 bot = Bot(token=TELEGRAM_TOKEN)
