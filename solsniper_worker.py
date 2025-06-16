@@ -12,11 +12,11 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 SOLANASTREAMING_API_KEY = os.getenv("SOLANASTREAMING_API_KEY")
 
-# Load Google credentials from secret file (for Render)
-with open("/etc/secrets/GOOGLE_CREDS.json", "r") as f:
+# Load Google credentials from mounted secret file
+with open("/etc/secrets/GOOGLE_CREDS.json") as f:
     creds_dict = json.load(f)
 
-# Setup Google Sheets logging
+# Setup Google Sheets
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
 client = gspread.authorize(creds)
@@ -25,11 +25,11 @@ sheet = client.open("Sol Sniper Logs").sheet1
 # Initialize Telegram bot
 bot = Bot(token=TELEGRAM_TOKEN)
 
-# Filter parameters
-MIN_VOLUME = 10000         # $10k
-MIN_LIQUIDITY = 10000      # $10k
-MAX_HOLDER_PERCENT = 5     # No single holder > 5%
-MIN_MARKET_CAP = 100000    # $100k
+# Filter thresholds
+MIN_VOLUME = 10000
+MIN_LIQUIDITY = 10000
+MAX_HOLDER_PERCENT = 5
+MIN_MARKET_CAP = 100000
 
 # WebSocket subscription message
 SUBSCRIBE_MESSAGE = json.dumps({
@@ -37,7 +37,7 @@ SUBSCRIBE_MESSAGE = json.dumps({
     "method": "swapSubscribe",
     "params": {
         "include": {
-            "baseTokenMint": []  # Empty = subscribe to all
+            "baseTokenMint": []
         }
     }
 })
@@ -67,7 +67,7 @@ async def handle_stream():
     headers = {"X-API-KEY": SOLANASTREAMING_API_KEY}
 
     async with websockets.connect(url, extra_headers=headers) as ws:
-        await send_alert("🟢 SolSniper Bot is now live and scanning the Solana memecoin market.")
+        await send_alert("🟢 SolSniper Bot is now live and monitoring Solana memecoins.")
         await ws.send(SUBSCRIBE_MESSAGE)
         print("Subscribed to SolanaStreaming WebSocket")
 
