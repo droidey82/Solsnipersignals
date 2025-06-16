@@ -1,0 +1,13 @@
+services:
+  - type: worker
+    name: solana-sniper-bot
+    runtime: python
+    repo: https://github.com/droidey82/Solsnipersignals
+    branch: main
+    buildCommand: pip install -r requirements.txt
+    startCommand: python main.py
+    envVars:
+      - key: TELEGRAM_TOKEN
+        value: 7695990250:AAE70fgMtZZMI41ta1jyhK5pE2uJtMUzqQo
+      - key: TELEGRAM_CHAT_ID
+        value: -1002847073811
