@@ -7,10 +7,10 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
 
-# === Load secrets from /etc/secrets ===
-TELEGRAM_TOKEN = open("/etc/secrets/TELEGRAM_TOKEN").read().strip()
-TELEGRAM_CHAT_ID = open("/etc/secrets/TELEGRAM_CHAT_ID").read().strip()
-GOOGLE_CREDS = open("/etc/secrets/GOOGLE_CREDS").read().strip()
+# === Load secrets ===
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+GOOGLE_CREDS = open("/etc/secrets/GOOGLE_CREDS").read().strip()  # Secret file
 
 # === Setup Telegram bot ===
 bot = Bot(token=TELEGRAM_TOKEN)
