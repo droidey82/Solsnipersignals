@@ -36,18 +36,18 @@ SUBSCRIBE_MESSAGE = json.dumps({
     "method": "swapSubscribe",
     "params": {
         "include": {
-            "baseTokenMint": []
+            "baseTokenSymbol": []
         }
     }
 })
 
-def send_alert(message):
+async def send_alert(message):
     try:
         bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
     except Exception as e:
         print("Telegram error:", e)
 
-def log_to_sheet(token, price, volume, liquidity, holders, market_cap):
+async def log_to_sheet(token, price, volume, liquidity, holders, market_cap):
     try:
         sheet.append_row([
             datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
@@ -65,42 +65,45 @@ async def handle_stream():
     url = "wss://api.solanastreaming.com"
     headers = {"X-API-KEY": SOLANASTREAMING_API_KEY}
 
-    async with websockets.connect(url, extra_headers=headers) as ws:
-        send_alert("🟢 SolSniper Bot is live and monitoring swaps.")
-        print("Connected to WebSocket")
-        await ws.send(SUBSCRIBE_MESSAGE)
-        print("Subscribed to SolanaStreaming WebSocket")
+    while True:
+        try:
+            async with websockets.connect(url, extra_headers=headers, ping_interval=None) as ws:
+                print("Connected to WebSocket")
+                await ws.send(SUBSCRIBE_MESSAGE)
+                print("Subscribed to SolanaStreaming WebSocket")
 
-        while True:
-            try:
-                response = await ws.recv()
-                data = json.loads(response)
+                while True:
+                    response = await ws.recv()
+                    data = json.loads(response)
 
-                if data.get("method") != "swap":
-                    continue
+                    if data.get("method") != "swap":
+                        continue
 
-                info = data.get("params", {}).get("data", {})
+                    info = data.get("params", {}).get("data", {})
+                    token = info.get("baseTokenSymbol")
+                    price = info.get("priceUsd", 0)
+                    volume = info.get("volumeUsd", 0)
+                    liquidity = info.get("liquidityUsd", 0)
+                    holders = info.get("holders", 0)
+                    market_cap = info.get("fdvUsd", 0)
+                    top_holder = info.get("topHolderPercent", 100)
 
-                token = info.get("baseTokenSymbol")
-                price = info.get("priceUsd", 0)
-                volume = info.get("volumeUsd", 0)
-                liquidity = info.get("liquidityUsd", 0)
-                holders = info.get("holders", 0)
-                market_cap = info.get("fdvUsd", 0)
+                    if volume < MIN_VOLUME or liquidity < MIN_LIQUIDITY or market_cap < MIN_MARKET_CAP:
+                        continue
+                    if holders == 0 or top_holder > MAX_HOLDER_PERCENT:
+                        continue
 
-                if volume < MIN_VOLUME or liquidity < MIN_LIQUIDITY or market_cap < MIN_MARKET_CAP:
-                    continue
-                if holders == 0 or info.get("topHolderPercent", 100) > MAX_HOLDER_PERCENT:
-                    continue
+                    message = f"🚀 New Token Detected\nName: {token}\nPrice: ${price:.6f}\nVolume: ${volume:,.0f}\nLiquidity: ${liquidity:,.0f}\nFDV: ${market_cap:,.0f}\nHolders: {holders}"
+                    await send_alert(message)
+                    await log_to_sheet(token, price, volume, liquidity, holders, market_cap)
 
-                message = f"🚀 New Token Detected\nName: {token}\nPrice: ${price:.6f}\nVolume: ${volume:,.0f}\nLiquidity: ${liquidity:,.0f}\nFDV: ${market_cap:,.0f}\nHolders: {holders}"
-                send_alert(message)
-                log_to_sheet(token, price, volume, liquidity, holders, market_cap)
+        except websockets.exceptions.ConnectionClosedError as e:
+            print("Connection closed with error:", e)
+        except Exception as e:
+            print("Unexpected error:", e)
 
-            except Exception as e:
-                print("Error during stream:", e)
-                await asyncio.sleep(5)
+        print("Reconnecting in 5 seconds...")
+        await asyncio.sleep(5)
 
 if __name__ == '__main__':
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(handle_stream())
+    asyncio.run(handle_stream())
