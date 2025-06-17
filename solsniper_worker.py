@@ -8,32 +8,30 @@ from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
 import traceback
 
-# Load environment variables and secrets
+# Load secrets and environment vars
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 SOLANASTREAMING_API_KEY = os.getenv("SOLANASTREAMING_API_KEY")
-
-# Load Google credentials from secret file
 GOOGLE_CREDS_PATH = "/etc/secrets/GOOGLE_CREDS"
+
+# Telegram Bot
+bot = Bot(token=TELEGRAM_TOKEN)
+
+# Google Sheets setup
 with open(GOOGLE_CREDS_PATH) as f:
     creds_dict = json.load(f)
 
-# Init Telegram bot
-bot = Bot(token=TELEGRAM_TOKEN)
-
-# Setup Google Sheets logging
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
 client = gspread.authorize(creds)
 sheet = client.open("Sol Sniper Logs").sheet1
 
-# Filter thresholds
+# Filters
 MIN_VOLUME = 10000
 MIN_LIQUIDITY = 10000
 MAX_HOLDER_PERCENT = 5
 MIN_MARKET_CAP = 100000
 
-# WebSocket subscription message
 SUBSCRIBE_MESSAGE = json.dumps({
     "id": 1,
     "method": "swapSubscribe",
@@ -43,6 +41,8 @@ SUBSCRIBE_MESSAGE = json.dumps({
         }
     }
 })
+
+sent_startup_message = False
 
 async def send_alert(message):
     try:
@@ -65,24 +65,27 @@ async def log_to_sheet(token, price, volume, liquidity, holders, market_cap):
         print("Sheet logging error:", e)
 
 async def handle_stream():
-    url = "wss://api.solanastreaming.com"
+    global sent_startup_message
     headers = {"X-API-KEY": SOLANASTREAMING_API_KEY}
-    first_run = True
+    url = "wss://api.solanastreaming.com"
 
     while True:
         try:
+            print("🔌 Connecting to WebSocket...")
             async with websockets.connect(
                 url,
                 extra_headers=headers,
-                ping_interval=20,
-                ping_timeout=10
+                ping_interval=60,
+                ping_timeout=20,
+                close_timeout=5
             ) as ws:
-                if first_run:
+                print("✅ Connected to SolanaStreaming")
+                if not sent_startup_message:
                     await send_alert("🟢 SolSniper Bot is live and monitoring swaps.")
-                    first_run = False
+                    sent_startup_message = True
 
                 await ws.send(SUBSCRIBE_MESSAGE)
-                print("✅ Subscribed to SolanaStreaming WebSocket")
+                print("📡 Subscribed to token swaps")
 
                 while True:
                     try:
@@ -106,7 +109,7 @@ async def handle_stream():
                         if holders == 0 or top_holder > MAX_HOLDER_PERCENT:
                             continue
 
-                        message = (
+                        msg = (
                             f"🚀 New Token Detected\n"
                             f"Name: {token}\n"
                             f"Price: ${price:.6f}\n"
@@ -115,15 +118,17 @@ async def handle_stream():
                             f"FDV: ${market_cap:,.0f}\n"
                             f"Holders: {holders}"
                         )
-                        await send_alert(message)
+
+                        await send_alert(msg)
                         await log_to_sheet(token, price, volume, liquidity, holders, market_cap)
 
                     except Exception as e:
-                        print("⚠️ Stream processing error:", e)
+                        print("⚠️ Stream error:", e)
                         traceback.print_exc()
-                        break  # Force reconnect
+                        break  # force reconnect
+
         except Exception as e:
-            print("🔁 Reconnecting after error:", e)
+            print("🔁 Reconnect after WebSocket error:", e)
             traceback.print_exc()
             await asyncio.sleep(10)
 
