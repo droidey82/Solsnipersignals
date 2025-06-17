@@ -5,17 +5,27 @@ import time
 from datetime import datetime
 import telegram
 
-# === Load secrets ===
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN") or open("/etc/secrets/TELEGRAM_TOKEN").read().strip()
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID") or open("/etc/secrets/TELEGRAM_CHAT_ID").read().strip()
+print("[BOOT] SolSniper worker script started")
 
-bot = telegram.Bot(token=TELEGRAM_TOKEN)
+# === Load secrets ===
+try:
+    TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN") or open("/etc/secrets/TELEGRAM_TOKEN").read().strip()
+    TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID") or open("/etc/secrets/TELEGRAM_CHAT_ID").read().strip()
+    bot = telegram.Bot(token=TELEGRAM_TOKEN)
+    print("[BOOT] Telegram bot initialized")
+except Exception as e:
+    print("[ERROR] Failed to load Telegram config:", str(e))
+    raise SystemExit(1)
+
+# === Test Telegram Message ===
+try:
+    bot.send_message(chat_id=TELEGRAM_CHAT_ID, text="🟢 SolSniper worker script started at " + datetime.utcnow().strftime('%H:%M:%S UTC'))
+    print("[BOOT] Telegram test message sent")
+except Exception as e:
+    print("[ERROR] Telegram message failed:", str(e))
 
 # === DexScreener Solana feed ===
 DEXSCREENER_URL = "https://api.dexscreener.com/latest/dex/pairs/solana"
-
-def send_startup_message():
-    bot.send_message(chat_id=TELEGRAM_CHAT_ID, text="🟢 SolSniper worker started at " + datetime.utcnow().strftime('%H:%M:%S UTC'))
 
 def fetch_tokens():
     try:
@@ -31,10 +41,10 @@ def passes_filters(token):
     reasons = []
     
     try:
-        volume = float(token.get("volume", {}).get("h24", 0))  # 24h volume
+        volume = float(token.get("volume", {}).get("h24", 0))
         name = token.get("baseToken", {}).get("name", "UNKNOWN")
-        holders = 100  # Placeholder – replace if real holder data available
-        lp_locked = True  # Placeholder – replace if LP lock logic exists
+        holders = 100  # Placeholder
+        lp_locked = True  # Placeholder
 
         if volume < 10000:
             reasons.append(f"Low volume (${volume:,.0f})")
@@ -48,8 +58,6 @@ def passes_filters(token):
         return (False, [f"Exception: {str(e)}"])
 
 def main_loop():
-    send_startup_message()
-
     while True:
         print("\n[INFO] Fetching at", datetime.utcnow().strftime('%H:%M:%S UTC'))
         tokens = fetch_tokens()
@@ -67,7 +75,10 @@ def main_loop():
             if passed:
                 print(f"[✅] {name} passed filters — sending alert.")
                 message = f"🚀 *{name} ({symbol})* looks promising!\n🔗 {url}"
-                bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message, parse_mode=telegram.constants.ParseMode.MARKDOWN)
+                try:
+                    bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message, parse_mode=telegram.constants.ParseMode.MARKDOWN)
+                except Exception as e:
+                    print(f"[ERROR] Failed to send alert for {name}: {e}")
                 valid_count += 1
             else:
                 print(f"[❌] {name} excluded: {'; '.join(reasons)}")
@@ -77,5 +88,10 @@ def main_loop():
 
         time.sleep(60)
 
+# === Safe start point ===
 if __name__ == "__main__":
-    main_loop()
+    try:
+        print("[BOOT] Entering main loop...")
+        main_loop()
+    except Exception as e:
+        print("[CRASH] Unhandled exception:", str(e))
