@@ -1,109 +1,105 @@
 import os
 import json
-import asyncio
-import websockets
+import time
+import requests
 from telegram import Bot
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
 
-# Load environment variables
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-SOLANASTREAMING_API_KEY = os.getenv("SOLANASTREAMING_API_KEY")
-GOOGLE_CREDS_PATH = "/etc/secrets/GOOGLE_CREDS"
+# === Load secrets from /etc/secrets ===
+TELEGRAM_TOKEN = open("/etc/secrets/TELEGRAM_TOKEN").read().strip()
+TELEGRAM_CHAT_ID = open("/etc/secrets/TELEGRAM_CHAT_ID").read().strip()
+GOOGLE_CREDS = open("/etc/secrets/GOOGLE_CREDS").read().strip()
 
-# Initialize Telegram bot
+# === Setup Telegram bot ===
 bot = Bot(token=TELEGRAM_TOKEN)
 
-# Setup Google Sheets logging
+# === Setup Google Sheets logging ===
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-with open(GOOGLE_CREDS_PATH) as f:
-    creds_dict = json.load(f)
+creds_dict = json.loads(GOOGLE_CREDS)
 creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
 client = gspread.authorize(creds)
 sheet = client.open("Sol Sniper Logs").sheet1
 
-# Filter parameters
-MIN_VOLUME = 10000  # $10k
-MIN_LIQUIDITY = 10000  # $10k
+# === Alert history to avoid duplicates ===
+sent_tokens = set()
+
+# === Filters ===
+MIN_VOLUME = 10000
+MIN_LIQUIDITY = 10000
+MIN_MARKET_CAP = 100000
 MAX_HOLDER_PERCENT = 5
-MIN_MARKET_CAP = 100000  # $100k
+REQUIRE_BURNED_LP = True
 
-# Subscription message template
-SUBSCRIBE_MESSAGE = json.dumps({
-    "id": 1,
-    "method": "swapSubscribe",
-    "params": {
-        "include": {
-            "baseTokenSymbol": []
-        }
-    }
-})
+# === Fetch token data from DexScreener ===
+def fetch_trending_solana():
+    try:
+        url = "https://api.dexscreener.com/latest/dex/pairs/solana"
+        response = requests.get(url)
+        if response.status_code == 200:
+            return response.json().get("pairs", [])
+        else:
+            print(f"API error: {response.status_code}")
+            return []
+    except Exception as e:
+        print("Fetch error:", e)
+        return []
 
-async def send_alert(message):
+# === Send alert to Telegram ===
+def send_alert(message):
     try:
         bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
     except Exception as e:
         print("Telegram error:", e)
 
-async def log_to_sheet(token, price, volume, liquidity, holders, market_cap):
+# === Log alert to Google Sheet ===
+def log_to_sheet(data):
     try:
         sheet.append_row([
             datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
-            token,
-            price,
-            volume,
-            liquidity,
-            holders,
-            market_cap
+            data.get("baseToken", {}).get("name", "N/A"),
+            data.get("priceUsd", 0),
+            data.get("volume", {}).get("h24", 0),
+            data.get("liquidity", {}).get("usd", 0),
+            data.get("fdv", 0),
+            data.get("holders", 0),
+            data.get("liquidity", {}).get("isBurned", False)
         ])
     except Exception as e:
-        print("Sheet logging error:", e)
+        print("Sheet error:", e)
 
-async def handle_stream():
-    url = "wss://api.solanastreaming.com"
-    headers = {"X-API-KEY": SOLANASTREAMING_API_KEY}
-
+# === Main loop ===
+def main():
+    print("🔄 SolSniper Worker Running")
     while True:
         try:
-            async with websockets.connect(url, extra_headers=headers, ping_interval=None) as ws:
-                print("Connected to WebSocket")
-                await ws.send(SUBSCRIBE_MESSAGE)
-                print("Subscribed to SolanaStreaming WebSocket")
+            tokens = fetch_trending_solana()
+            for token in tokens:
+                base = token.get("baseToken", {}).get("symbol", "")
+                volume = token.get("volume", {}).get("h24", 0)
+                liquidity = token.get("liquidity", {}).get("usd", 0)
+                market_cap = token.get("fdv", 0)
+                holders = token.get("holders", 0)
+                top_holder = token.get("topHolderPercent", 100)
+                burned_lp = token.get("liquidity", {}).get("isBurned", False)
 
-                while True:
-                    response = await ws.recv()
-                    data = json.loads(response)
+                if base in sent_tokens:
+                    continue
 
-                    if data.get("method") != "swap":
-                        continue
+                if volume >= MIN_VOLUME and liquidity >= MIN_LIQUIDITY and market_cap >= MIN_MARKET_CAP:
+                    if holders > 0 and top_holder <= MAX_HOLDER_PERCENT:
+                        if not REQUIRE_BURNED_LP or burned_lp:
+                            message = f"🚀 Token Alert: {base}\n💰 Price: ${token.get('priceUsd', 0):.6f}\n📊 Volume: ${volume:,.0f}\n💧 Liquidity: ${liquidity:,.0f}\n🏷️ FDV: ${market_cap:,.0f}\n👥 Holders: {holders}\n🔥 LP Burned: {burned_lp}"
+                            send_alert(message)
+                            log_to_sheet(token)
+                            sent_tokens.add(base)
 
-                    info = data.get("params", {}).get("data", {})
-                    token = info.get("baseTokenSymbol")
-                    price = info.get("priceUsd", 0)
-                    volume = info.get("volumeUsd", 0)
-                    liquidity = info.get("liquidityUsd", 0)
-                    holders = info.get("holders", 0)
-                    market_cap = info.get("fdvUsd", 0)
-                    top_holder = info.get("topHolderPercent", 100)
-
-                    if volume < MIN_VOLUME or liquidity < MIN_LIQUIDITY or market_cap < MIN_MARKET_CAP:
-                        continue
-                    if holders == 0 or top_holder > MAX_HOLDER_PERCENT:
-                        continue
-
-                    message = f"🚀 New Token Detected\nName: {token}\nPrice: ${price:.6f}\nVolume: ${volume:,.0f}\nLiquidity: ${liquidity:,.0f}\nFDV: ${market_cap:,.0f}\nHolders: {holders}"
-                    await send_alert(message)
-                    await log_to_sheet(token, price, volume, liquidity, holders, market_cap)
-
-        except websockets.exceptions.ConnectionClosedError as e:
-            print("Connection closed with error:", e)
+            time.sleep(60)
         except Exception as e:
-            print("Unexpected error:", e)
-
-        print("Reconnecting in 5 seconds...")
-        await asyncio.sleep(5)
+            print("Loop error:", e)
+            time.sleep(30)
 
 if __name__ == '__main__':
-    asyncio.run(handle_stream())
+    send_alert("🟢 SolSniper Bot is live and monitoring Solana tokens.")
+    main()
