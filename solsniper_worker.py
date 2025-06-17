@@ -1,105 +1,81 @@
 import os
 import json
-import time
 import requests
-from telegram import Bot
-import gspread
-from oauth2client.service_account import ServiceAccountCredentials
+import time
 from datetime import datetime
+import telegram
 
 # === Load secrets ===
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-GOOGLE_CREDS = open("/etc/secrets/GOOGLE_CREDS").read().strip()  # Secret file
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN") or open("/etc/secrets/TELEGRAM_TOKEN").read().strip()
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID") or open("/etc/secrets/TELEGRAM_CHAT_ID").read().strip()
 
-# === Setup Telegram bot ===
-bot = Bot(token=TELEGRAM_TOKEN)
+bot = telegram.Bot(token=TELEGRAM_TOKEN)
 
-# === Setup Google Sheets logging ===
-scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-creds_dict = json.loads(GOOGLE_CREDS)
-creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-client = gspread.authorize(creds)
-sheet = client.open("Sol Sniper Logs").sheet1
+# === DexScreener Solana feed ===
+DEXSCREENER_URL = "https://api.dexscreener.com/latest/dex/pairs/solana"
 
-# === Alert history to avoid duplicates ===
-sent_tokens = set()
+def send_startup_message():
+    bot.send_message(chat_id=TELEGRAM_CHAT_ID, text="🟢 SolSniper worker started at " + datetime.utcnow().strftime('%H:%M:%S UTC'))
 
-# === Filters ===
-MIN_VOLUME = 10000
-MIN_LIQUIDITY = 10000
-MIN_MARKET_CAP = 100000
-MAX_HOLDER_PERCENT = 5
-REQUIRE_BURNED_LP = True
-
-# === Fetch token data from DexScreener ===
-def fetch_trending_solana():
+def fetch_tokens():
     try:
-        url = "https://api.dexscreener.com/latest/dex/pairs/solana"
-        response = requests.get(url)
-        if response.status_code == 200:
-            return response.json().get("pairs", [])
-        else:
-            print(f"API error: {response.status_code}")
-            return []
+        response = requests.get(DEXSCREENER_URL, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        return data.get('pairs', [])
     except Exception as e:
-        print("Fetch error:", e)
+        print(f"[ERROR] Fetch failed: {e}")
         return []
 
-# === Send alert to Telegram ===
-def send_alert(message):
+def passes_filters(token):
+    reasons = []
+    
     try:
-        bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
-    except Exception as e:
-        print("Telegram error:", e)
+        volume = float(token.get("volume", {}).get("h24", 0))  # 24h volume
+        name = token.get("baseToken", {}).get("name", "UNKNOWN")
+        holders = 100  # Placeholder – replace if real holder data available
+        lp_locked = True  # Placeholder – replace if LP lock logic exists
 
-# === Log alert to Google Sheet ===
-def log_to_sheet(data):
-    try:
-        sheet.append_row([
-            datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
-            data.get("baseToken", {}).get("name", "N/A"),
-            data.get("priceUsd", 0),
-            data.get("volume", {}).get("h24", 0),
-            data.get("liquidity", {}).get("usd", 0),
-            data.get("fdv", 0),
-            data.get("holders", 0),
-            data.get("liquidity", {}).get("isBurned", False)
-        ])
-    except Exception as e:
-        print("Sheet error:", e)
+        if volume < 10000:
+            reasons.append(f"Low volume (${volume:,.0f})")
+        if not lp_locked:
+            reasons.append("LP not locked")
+        if holders < 10:
+            reasons.append("Low holder count")
 
-# === Main loop ===
-def main():
-    print("🔄 SolSniper Worker Running")
+        return (len(reasons) == 0, reasons)
+    except Exception as e:
+        return (False, [f"Exception: {str(e)}"])
+
+def main_loop():
+    send_startup_message()
+
     while True:
-        try:
-            tokens = fetch_trending_solana()
-            for token in tokens:
-                base = token.get("baseToken", {}).get("symbol", "")
-                volume = token.get("volume", {}).get("h24", 0)
-                liquidity = token.get("liquidity", {}).get("usd", 0)
-                market_cap = token.get("fdv", 0)
-                holders = token.get("holders", 0)
-                top_holder = token.get("topHolderPercent", 100)
-                burned_lp = token.get("liquidity", {}).get("isBurned", False)
+        print("\n[INFO] Fetching at", datetime.utcnow().strftime('%H:%M:%S UTC'))
+        tokens = fetch_tokens()
+        print(f"[INFO] Retrieved {len(tokens)} tokens")
 
-                if base in sent_tokens:
-                    continue
+        valid_count = 0
 
-                if volume >= MIN_VOLUME and liquidity >= MIN_LIQUIDITY and market_cap >= MIN_MARKET_CAP:
-                    if holders > 0 and top_holder <= MAX_HOLDER_PERCENT:
-                        if not REQUIRE_BURNED_LP or burned_lp:
-                            message = f"🚀 Token Alert: {base}\n💰 Price: ${token.get('priceUsd', 0):.6f}\n📊 Volume: ${volume:,.0f}\n💧 Liquidity: ${liquidity:,.0f}\n🏷️ FDV: ${market_cap:,.0f}\n👥 Holders: {holders}\n🔥 LP Burned: {burned_lp}"
-                            send_alert(message)
-                            log_to_sheet(token)
-                            sent_tokens.add(base)
+        for token in tokens:
+            name = token.get("baseToken", {}).get("name", "UNKNOWN")
+            symbol = token.get("baseToken", {}).get("symbol", "")
+            url = token.get("url", "")
 
-            time.sleep(60)
-        except Exception as e:
-            print("Loop error:", e)
-            time.sleep(30)
+            passed, reasons = passes_filters(token)
 
-if __name__ == '__main__':
-    send_alert("🟢 SolSniper Bot is live and monitoring Solana tokens.")
-    main()
+            if passed:
+                print(f"[✅] {name} passed filters — sending alert.")
+                message = f"🚀 *{name} ({symbol})* looks promising!\n🔗 {url}"
+                bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message, parse_mode=telegram.constants.ParseMode.MARKDOWN)
+                valid_count += 1
+            else:
+                print(f"[❌] {name} excluded: {'; '.join(reasons)}")
+
+        if valid_count == 0:
+            print("[INFO] No valid tokens this round.")
+
+        time.sleep(60)
+
+if __name__ == "__main__":
+    main_loop()
