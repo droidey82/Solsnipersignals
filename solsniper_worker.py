@@ -1,3 +1,4 @@
+print("✅ SolSniper worker script booted")
 import os
 import json
 import requests
