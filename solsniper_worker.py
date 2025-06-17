@@ -11,11 +11,9 @@ from datetime import datetime
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 SOLANASTREAMING_API_KEY = os.getenv("SOLANASTREAMING_API_KEY")
-
-# Path to Google Sheets credentials (Render secret mount)
 GOOGLE_CREDS_PATH = "/etc/secrets/GOOGLE_CREDS"
 
-# Setup Telegram bot
+# Initialize Telegram bot
 bot = Bot(token=TELEGRAM_TOKEN)
 
 # Setup Google Sheets logging
@@ -32,7 +30,7 @@ MIN_LIQUIDITY = 10000
 MAX_HOLDER_PERCENT = 5
 MIN_MARKET_CAP = 100000
 
-# WebSocket subscription message
+# WebSocket message
 SUBSCRIBE_MESSAGE = json.dumps({
     "id": 1,
     "method": "swapSubscribe",
@@ -43,6 +41,7 @@ SUBSCRIBE_MESSAGE = json.dumps({
     }
 })
 
+# Alert & log
 async def send_alert(message):
     try:
         await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
@@ -63,59 +62,68 @@ async def log_to_sheet(token, price, volume, liquidity, holders, market_cap):
     except Exception as e:
         print("Sheet logging error:", e)
 
+# Stream logic
 async def handle_stream():
     url = "wss://api.solanastreaming.com"
     headers = {"X-API-KEY": SOLANASTREAMING_API_KEY}
+    last_keepalive = datetime.utcnow()
 
-    try:
-        async with websockets.connect(url, extra_headers=headers) as ws:
-            print("✅ Connected to SolanaStreaming WebSocket.")
-            await ws.send(SUBSCRIBE_MESSAGE)
+    async with websockets.connect(url, extra_headers=headers) as ws:
+        await send_alert("🟢 SolSniper Bot has started and is now monitoring the Solana memecoin market.")
+        await ws.send(SUBSCRIBE_MESSAGE)
+        print(f"[{datetime.utcnow()}] Subscribed to SolanaStreaming WebSocket")
 
-            # Send startup alert ONCE after successful subscription
-            await send_alert("🟢 SolSniper Bot is live and monitoring swaps.")
+        while True:
+            try:
+                response = await ws.recv()
+                data = json.loads(response)
 
-            while True:
-                try:
-                    response = await ws.recv()
-                    data = json.loads(response)
+                # Optional keepalive ping
+                now = datetime.utcnow()
+                if (now - last_keepalive).seconds > 600:
+                    print(f"[{now}] 🔄 Keepalive: Bot is still running...")
+                    last_keepalive = now
 
-                    if data.get("method") != "swap":
-                        continue
+                if data.get("method") != "swap":
+                    continue
 
-                    info = data.get("params", {}).get("data", {})
-                    token = info.get("baseTokenSymbol")
-                    price = info.get("priceUsd", 0)
-                    volume = info.get("volumeUsd", 0)
-                    liquidity = info.get("liquidityUsd", 0)
-                    holders = info.get("holders", 0)
-                    market_cap = info.get("fdvUsd", 0)
-                    top_holder_percent = info.get("topHolderPercent", 100)
+                info = data.get("params", {}).get("data", {})
+                token = info.get("baseTokenSymbol")
+                price = info.get("priceUsd", 0)
+                volume = info.get("volumeUsd", 0)
+                liquidity = info.get("liquidityUsd", 0)
+                holders = info.get("holders", 0)
+                market_cap = info.get("fdvUsd", 0)
+                top_holder = info.get("topHolderPercent", 100)
 
-                    # Apply filters
-                    if volume < MIN_VOLUME or liquidity < MIN_LIQUIDITY or market_cap < MIN_MARKET_CAP:
-                        continue
-                    if holders == 0 or top_holder_percent > MAX_HOLDER_PERCENT:
-                        continue
+                # Filter
+                if volume < MIN_VOLUME or liquidity < MIN_LIQUIDITY or market_cap < MIN_MARKET_CAP:
+                    continue
+                if holders == 0 or top_holder > MAX_HOLDER_PERCENT:
+                    continue
 
-                    message = (
-                        f"🚀 New Token Detected\n"
-                        f"Name: {token}\n"
-                        f"Price: ${price:.6f}\n"
-                        f"Volume: ${volume:,.0f}\n"
-                        f"Liquidity: ${liquidity:,.0f}\n"
-                        f"FDV: ${market_cap:,.0f}\n"
-                        f"Holders: {holders}"
-                    )
-                    await send_alert(message)
-                    await log_to_sheet(token, price, volume, liquidity, holders, market_cap)
+                message = (
+                    f"🚀 New Token Detected\n"
+                    f"Name: {token}\nPrice: ${price:.6f}\n"
+                    f"Volume: ${volume:,.0f}\nLiquidity: ${liquidity:,.0f}\n"
+                    f"FDV: ${market_cap:,.0f}\nHolders: {holders}"
+                )
 
-                except Exception as stream_err:
-                    print("Stream error:", stream_err)
-                    await asyncio.sleep(5)
+                await send_alert(message)
+                await log_to_sheet(token, price, volume, liquidity, holders, market_cap)
 
-    except Exception as conn_err:
-        print("WebSocket connection error:", conn_err)
+            except Exception as e:
+                print(f"[{datetime.utcnow()}] Error in stream loop:", e)
+                await asyncio.sleep(5)
+
+# Restart wrapper
+async def run_forever():
+    while True:
+        try:
+            await handle_stream()
+        except Exception as e:
+            print(f"[{datetime.utcnow()}] Fatal error in bot:", e)
+            await asyncio.sleep(10)
 
 if __name__ == '__main__':
-    asyncio.run(handle_stream())
+    asyncio.run(run_forever())
